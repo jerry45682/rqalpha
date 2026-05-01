@@ -1,0 +1,19 @@
+stock_pool:
+  index: 000300.XSHG
+  symbols: []
+
+factors:
+  weights:
+    pe: 0.25
+    pb: 0.25
+    roe: 0.25
+    momentum_60: 0.25
+  winsorize_quantiles: [0.05, 0.95]
+
+portfolio:
+  size: 20
+
+rebalance:
+  frequency: monthly
+  tradingday: 1
+

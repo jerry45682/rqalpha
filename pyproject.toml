@@ -70,6 +70,7 @@ include = ["rqalpha", "rqalpha.*"]
 "rqalpha" = [
     '*.yml',
     'examples/*.*',
+    'examples/multi_factor_strategy/*.*',
     'examples/data_source/*.*',
     'examples/extend_api/*.*',
     'resource/*.*',
