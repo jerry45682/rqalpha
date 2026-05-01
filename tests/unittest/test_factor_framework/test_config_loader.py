@@ -46,3 +46,94 @@ def test_load_config_rejects_invalid_category_weight_sum(tmp_path):
 
     with pytest.raises(ValueError, match="category weights"):
         load_config(path)
+
+
+def test_load_config_rejects_non_mapping_root(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_text("- portfolio\n- factors\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="config root must be a mapping"):
+        load_config(path)
+
+
+def test_load_config_rejects_null_category_weights(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        "factors:\n"
+        "  category_weights:\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="factors.category_weights"):
+        load_config(path)
+
+
+def test_load_config_rejects_non_numeric_category_weight(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        "factors:\n"
+        "  category_weights:\n"
+        "    valuation: many\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="factors.category_weights"):
+        load_config(path)
+
+
+def test_load_config_rejects_buffer_count_below_holding_count(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        "portfolio:\n"
+        "  holding_count: 30\n"
+        "  buffer_count: 29\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="portfolio.buffer_count"):
+        load_config(path)
+
+
+def test_load_config_rejects_non_numeric_holding_count(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        "portfolio:\n"
+        "  holding_count: many\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="portfolio.holding_count"):
+        load_config(path)
+
+
+def test_load_config_rejects_non_numeric_buffer_count(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        "portfolio:\n"
+        "  buffer_count: many\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="portfolio.buffer_count"):
+        load_config(path)
+
+
+def test_load_config_returns_are_isolated_between_calls(tmp_path):
+    first = load_config()
+    first["portfolio"]["holding_count"] = 1
+    first["factors"]["category_weights"]["valuation"] = 1.0
+
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "portfolio:\n"
+        "  holding_count: 5\n",
+        encoding="utf-8",
+    )
+    second = load_config(path)
+    third = load_config()
+
+    assert second["portfolio"]["holding_count"] == 5
+    assert second["portfolio"]["buffer_count"] == 60
+    assert second["factors"]["category_weights"]["valuation"] == 0.25
+    assert third["portfolio"]["holding_count"] == 30
+    assert third["factors"]["category_weights"]["valuation"] == 0.25
