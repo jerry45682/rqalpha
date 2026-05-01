@@ -1,0 +1,41 @@
+stock_pool:
+  index: 000300.XSHG
+  symbols: []
+
+rebalance:
+  frequency: monthly
+  timing: first_trading_day
+
+portfolio:
+  holding_count: 30
+  buffer_count: 60
+
+factors:
+  category_weights:
+    valuation: 0.25
+    quality: 0.25
+    growth: 0.25
+    momentum: 0.25
+
+scoring:
+  winsorize_quantiles:
+    - 0.01
+    - 0.99
+  standardize: true
+
+filters:
+  exclude_st: true
+  exclude_suspended: true
+  min_listing_days: 60
+
+risk:
+  max_weight: 0.1
+  industry_neutral: false
+
+data:
+  frequency: 1d
+  price_field: close
+
+backtest:
+  benchmark: 000300.XSHG
+  commission_multiplier: 1.0
