@@ -1,19 +1,22 @@
 stock_pool:
   index: 000300.XSHG
-  symbols: []
+  symbols:
+    - 600000.XSHG
+    - 000001.XSHE
+    - 000002.XSHE
 
 factors:
+  source: baostock
   weights:
-    pe: 0.25
-    pb: 0.25
-    roe: 0.25
-    momentum_60: 0.25
+    pe: 0.35
+    pb: 0.35
+    roe: 0.0
+    momentum_60: 0.30
   winsorize_quantiles: [0.05, 0.95]
 
 portfolio:
-  size: 20
+  size: 2
 
 rebalance:
   frequency: monthly
   tradingday: 1
-

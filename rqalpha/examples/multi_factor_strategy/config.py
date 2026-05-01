@@ -10,6 +10,7 @@ DEFAULT_CONFIG = {
         "symbols": [],
     },
     "factors": {
+        "source": "rqdatac",
         "weights": {
             "pe": 0.25,
             "pb": 0.25,
@@ -47,4 +48,3 @@ def load_config(path=None):
         with path.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
     return deep_merge(DEFAULT_CONFIG, data)
-

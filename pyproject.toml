@@ -51,6 +51,7 @@ rqalpha = "rqalpha.__main__:entry_point"
 
 [project.optional-dependencies]
 profiler = ["line_profiler"]
+baostock = ["baostock"]
 
 [build-system]
 requires = [
@@ -75,6 +76,7 @@ include = ["rqalpha", "rqalpha.*"]
     'examples/extend_api/*.*',
     'resource/*.*',
     'utils/translations/zh_Hans_CN/LC_MESSAGES/*',
+    "mod/rqalpha_mod_baostock/*.*",
     "mod/rqalpha_mod_sys_analyser/report/templates/*.xlsx",
 ]
 
