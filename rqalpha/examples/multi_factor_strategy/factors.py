@@ -90,3 +90,14 @@ def fetch_fundamental_factors(order_book_ids, get_factor):
             "roe": pd.to_numeric(latest.get("roe"), errors="coerce"),
         }
     )
+
+
+def fetch_baostock_factors(order_book_ids, history_bars):
+    rows = []
+    for order_book_id in order_book_ids:
+        bars = history_bars(order_book_id, 1, "1d", ["peTTM", "pbMRQ"], include_now=True)
+        if bars is None or len(bars) == 0:
+            rows.append((order_book_id, np.nan, np.nan))
+            continue
+        rows.append((order_book_id, float(bars[-1]["peTTM"]), float(bars[-1]["pbMRQ"])))
+    return pd.DataFrame(rows, columns=["order_book_id", "pe", "pb"]).set_index("order_book_id")

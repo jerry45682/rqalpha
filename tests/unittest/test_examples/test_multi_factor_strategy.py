@@ -5,6 +5,7 @@ from rqalpha.examples.multi_factor_strategy.config import load_config
 from rqalpha.examples.multi_factor_strategy.factors import (
     build_factor_scores,
     calculate_momentum,
+    fetch_baostock_factors,
     zscore,
 )
 from rqalpha.examples.multi_factor_strategy.filters import resolve_stock_pool
@@ -75,6 +76,20 @@ def test_calculate_momentum_uses_first_and_last_close():
         return np.array([10.0, 11.0, 12.0, 15.0])
 
     assert calculate_momentum("000001.XSHE", history_bars, window=60) == 0.5
+
+
+def test_fetch_baostock_factors_reads_latest_bar_fields():
+    def history_bars(order_book_id, count, frequency, fields, include_now=True):
+        assert count == 1
+        assert frequency == "1d"
+        assert fields == ["peTTM", "pbMRQ"]
+        assert include_now is True
+        return np.array([(8.0, 1.2)], dtype=[("peTTM", "f8"), ("pbMRQ", "f8")])
+
+    result = fetch_baostock_factors(["600000.XSHG"], history_bars)
+
+    assert result.loc["600000.XSHG", "pe"] == 8.0
+    assert result.loc["600000.XSHG", "pb"] == 1.2
 
 
 def test_resolve_stock_pool_prefers_explicit_symbols():

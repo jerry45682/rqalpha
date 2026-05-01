@@ -1,0 +1,8 @@
+mod:
+  baostock:
+    enabled: true
+    lib: rqalpha.mod.rqalpha_mod_baostock
+    cache_dir: .rqalpha_baostock_cache
+    adjustflag: "2"
+    start_date: 2025-01-01
+    end_date: 2026-04-30

@@ -16,6 +16,10 @@ build/
 bundle/
 bundle
 persist/
+.rqalpha_baostock_cache/
+multi_factor_result.pkl
+rqalpha/examples/multi_factor_strategy/multi_factor_result.pkl
+rqalpha/examples/multi_factor_strategy/multi_factor_result/
 .coverage
 .tox
 rqalpha_test_coverage_report/

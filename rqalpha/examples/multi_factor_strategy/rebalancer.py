@@ -12,6 +12,5 @@ def plan_rebalance_orders(current_positions, target_weights):
 
 def execute_rebalance(order_func, orders, logger):
     for order_book_id, target_weight in orders:
-        logger.info("order_target_percent %s %.4f", order_book_id, target_weight)
+        logger.info("order_target_percent {} {:.4f}".format(order_book_id, target_weight))
         order_func(order_book_id, target_weight)
-
