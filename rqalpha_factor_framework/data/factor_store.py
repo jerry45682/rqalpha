@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .baostock_client import rqalpha_to_baostock
 from .cache import CsvCache
 
 
@@ -63,9 +64,12 @@ class FactorStore:
             return values
 
         dated = frame.copy()
-        for column in ("order_book_id", "code"):
-            if column in dated.columns:
-                dated = dated[dated[column] == order_book_id]
+        if "order_book_id" in dated.columns:
+            dated = dated[dated["order_book_id"] == order_book_id]
+        if "code" in dated.columns:
+            dated = dated[
+                dated["code"].isin({order_book_id, rqalpha_to_baostock(order_book_id)})
+            ]
         if dated.empty:
             return values
 

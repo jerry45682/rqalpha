@@ -136,3 +136,21 @@ def test_factor_store_filters_financial_rows_by_order_book_id(tmp_path):
 
     assert aligned.loc["600000.XSHG", "roe"] == 0.1
     assert pd.isna(aligned.loc["000001.XSHE", "roe"])
+
+
+def test_factor_store_matches_baostock_financial_code(tmp_path):
+    store = FactorStore(tmp_path)
+    frame = pd.DataFrame(
+        {
+            "pub_date": ["2022-12-31", "2023-01-31"],
+            "code": ["sh.600000", "sz.000001"],
+            "roe": [0.1, 0.9],
+        }
+    )
+    store.write_financial("600000.XSHG", "profit", frame)
+
+    aligned = store.get_latest_financial(
+        ["600000.XSHG"], "profit", "2023-02-01", ["roe"]
+    )
+
+    assert aligned.loc["600000.XSHG", "roe"] == 0.1
