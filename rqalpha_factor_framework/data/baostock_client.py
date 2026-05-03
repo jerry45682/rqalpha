@@ -21,6 +21,30 @@ DAILY_FIELDS = [
 ]
 
 
+PROFIT_FIELD_ALIASES = {
+    "roeAvg": "roe",
+    "ROA": "roa",
+    "roa": "roa",
+    "gpMargin": "gross_margin",
+}
+
+BALANCE_FIELD_ALIASES = {
+    "liabilityToAsset": "debt_to_asset",
+    "assetLiabRatio": "debt_to_asset",
+}
+
+GROWTH_FIELD_ALIASES = {
+    "YOYRevenue": "revenue_growth_yoy",
+    "YOYOperatingRevenue": "revenue_growth_yoy",
+    "operating_revenue_yoy": "revenue_growth_yoy",
+    "YOYNI": "net_profit_growth_yoy",
+    "YOYPNI": "net_profit_growth_yoy",
+    "net_profit_yoy": "net_profit_growth_yoy",
+    "CFOToGr": "operating_cashflow_growth_yoy",
+    "net_operate_cash_flow_yoy": "operating_cashflow_growth_yoy",
+}
+
+
 def rqalpha_to_baostock(order_book_id):
     code, exchange = order_book_id.split(".")
     if exchange == "XSHG":
@@ -82,7 +106,7 @@ class BaostockClient:
                 year=year,
                 quarter=quarter,
             )
-            return _result_to_frame(result)
+            return _normalize_fields(_result_to_frame(result), PROFIT_FIELD_ALIASES)
 
     def query_balance_data(self, order_book_id, year, quarter):
         with baostock_session() as bs:
@@ -91,7 +115,7 @@ class BaostockClient:
                 year=year,
                 quarter=quarter,
             )
-            return _result_to_frame(result)
+            return _normalize_fields(_result_to_frame(result), BALANCE_FIELD_ALIASES)
 
     def query_growth_data(self, order_book_id, year, quarter):
         with baostock_session() as bs:
@@ -100,7 +124,7 @@ class BaostockClient:
                 year=year,
                 quarter=quarter,
             )
-            return _result_to_frame(result)
+            return _normalize_fields(_result_to_frame(result), GROWTH_FIELD_ALIASES)
 
 
 def _result_to_frame(result):
@@ -111,3 +135,10 @@ def _result_to_frame(result):
     while result.next():
         rows.append(result.get_row_data())
     return pd.DataFrame(rows, columns=result.fields)
+
+
+def _normalize_fields(frame, aliases):
+    for source, target in aliases.items():
+        if source in frame.columns and target not in frame.columns:
+            frame[target] = frame[source]
+    return frame

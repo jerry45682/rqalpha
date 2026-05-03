@@ -7,6 +7,8 @@ from rqalpha_factor_framework.factors.reversal import calculate_reversal_factors
 from rqalpha_factor_framework.factors.risk import calculate_risk_factors
 from rqalpha_factor_framework.factors.technical import calculate_technical_factors
 from rqalpha_factor_framework.factors.valuation import calculate_valuation_factors
+from rqalpha_factor_framework.factors.growth import calculate_growth_factors
+from rqalpha_factor_framework.factors.quality import calculate_quality_factors
 
 
 def sample_daily(order_book_id="600000.XSHG", periods=130):
@@ -99,3 +101,97 @@ def test_factor_calculations_sort_unsorted_daily_data():
     result = calculate_momentum_factors({"600000.XSHG": descending})
 
     assert result.loc["600000.XSHG", "return_20"] == expected.loc["600000.XSHG", "return_20"]
+
+
+def test_financial_factor_modules_return_expected_columns():
+    financial = {
+        "600000.XSHG": {
+            "profit": pd.DataFrame(
+                [{"roe": 0.12, "roa": 0.03, "gross_margin": 0.25}]
+            ),
+            "balance": pd.DataFrame([{"debt_to_asset": 0.55}]),
+            "growth": pd.DataFrame(
+                [
+                    {
+                        "revenue_growth_yoy": 0.10,
+                        "net_profit_growth_yoy": 0.08,
+                        "operating_cashflow_growth_yoy": 0.05,
+                    }
+                ]
+            ),
+        }
+    }
+
+    quality = calculate_quality_factors(financial)
+    growth = calculate_growth_factors(financial)
+
+    assert quality.loc["600000.XSHG", "roe"] == 0.12
+    assert quality.loc["600000.XSHG", "debt_to_asset"] == 0.55
+    assert growth.loc["600000.XSHG", "net_profit_growth_yoy"] == 0.08
+
+
+def test_financial_factors_convert_strings_and_empty_values_to_numeric():
+    financial = {
+        "600000.XSHG": {
+            "profit": pd.DataFrame(
+                [{"roe": "0.12", "roa": "", "gross_margin": "0.25"}]
+            ),
+            "balance": pd.DataFrame([{"debt_to_asset": ""}]),
+            "growth": pd.DataFrame(
+                [
+                    {
+                        "revenue_growth_yoy": "0.10",
+                        "net_profit_growth_yoy": "",
+                        "operating_cashflow_growth_yoy": "0.05",
+                    }
+                ]
+            ),
+        }
+    }
+
+    quality = calculate_quality_factors(financial)
+    growth = calculate_growth_factors(financial)
+
+    assert quality.loc["600000.XSHG", "roe"] == 0.12
+    assert np.isnan(quality.loc["600000.XSHG", "roa"])
+    assert np.isnan(quality.loc["600000.XSHG", "debt_to_asset"])
+    assert growth.loc["600000.XSHG", "revenue_growth_yoy"] == 0.10
+    assert np.isnan(growth.loc["600000.XSHG", "net_profit_growth_yoy"])
+
+
+def test_financial_factors_return_nan_for_empty_tables():
+    financial = {
+        "600000.XSHG": {
+            "profit": pd.DataFrame(),
+            "balance": pd.DataFrame(),
+            "growth": pd.DataFrame(),
+        }
+    }
+
+    quality = calculate_quality_factors(financial)
+    growth = calculate_growth_factors(financial)
+
+    assert np.isnan(quality.loc["600000.XSHG", "roe"])
+    assert np.isnan(quality.loc["600000.XSHG", "debt_to_asset"])
+    assert np.isnan(growth.loc["600000.XSHG", "revenue_growth_yoy"])
+
+
+def test_financial_factors_preserve_multiple_order_book_ids_in_index():
+    financial = {
+        "600000.XSHG": {
+            "profit": pd.DataFrame([{"roe": 0.12}]),
+            "balance": pd.DataFrame([{"debt_to_asset": 0.55}]),
+            "growth": pd.DataFrame([{"net_profit_growth_yoy": 0.08}]),
+        },
+        "000001.XSHE": {
+            "profit": pd.DataFrame([{"roe": 0.10}]),
+            "balance": pd.DataFrame([{"debt_to_asset": 0.45}]),
+            "growth": pd.DataFrame([{"net_profit_growth_yoy": 0.06}]),
+        },
+    }
+
+    quality = calculate_quality_factors(financial)
+    growth = calculate_growth_factors(financial)
+
+    assert list(quality.index) == ["600000.XSHG", "000001.XSHE"]
+    assert list(growth.index) == ["600000.XSHG", "000001.XSHE"]
