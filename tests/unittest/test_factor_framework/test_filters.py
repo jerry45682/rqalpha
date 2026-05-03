@@ -66,3 +66,18 @@ def test_trading_filter_handles_limit_prices():
     assert not can_buy(last_price=10.1, limit_up=10.1)
     assert can_sell(last_price=10.0, limit_down=9.9)
     assert not can_sell(last_price=9.9, limit_down=9.9)
+
+
+def test_trading_filter_rejects_invalid_prices():
+    invalid_cases = [
+        (None, 10.0),
+        (10.0, None),
+        (float("nan"), 10.0),
+        (10.0, float("nan")),
+        ("bad", 10.0),
+        (10.0, "bad"),
+    ]
+
+    for last_price, limit_price in invalid_cases:
+        assert not can_buy(last_price, limit_price)
+        assert not can_sell(last_price, limit_price)

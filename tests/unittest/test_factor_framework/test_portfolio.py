@@ -80,6 +80,20 @@ def test_score_weight_targets_shift_scores_to_non_negative_weights():
     assert weights == {"a": 1.0, "b": 0.0}
 
 
+def test_score_weight_targets_ignores_missing_scores():
+    scored = pd.DataFrame({"score": [1.0, None]}, index=["a", "b"])
+
+    weights = build_score_weight_targets(scored, holding_count=2, total_exposure=0.8)
+
+    assert weights == {"a": 0.8}
+
+
+def test_score_weight_targets_returns_empty_when_all_scores_are_missing():
+    scored = pd.DataFrame({"score": [None, float("nan")]}, index=["a", "b"])
+
+    assert build_score_weight_targets(scored, holding_count=2) == {}
+
+
 def test_market_timing_exposure_uses_moving_averages():
     assert market_timing_exposure(pd.Series([1.0] * 119), 1.0, 0.5, 0.3) == 1.0
     assert market_timing_exposure(pd.Series([10.0] * 250), 1.0, 0.5, 0.3) == 1.0

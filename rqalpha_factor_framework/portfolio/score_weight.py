@@ -1,5 +1,17 @@
+import pandas as pd
+
+
 def build_score_weight_targets(scored, holding_count, total_exposure=1.0):
-    selected = scored.sort_values("score", ascending=False).head(int(holding_count))
+    if "score" not in scored.columns:
+        return {}
+
+    normalized = scored.copy()
+    normalized["score"] = pd.to_numeric(normalized["score"], errors="coerce")
+    selected = (
+        normalized.dropna(subset=["score"])
+        .sort_values("score", ascending=False)
+        .head(int(holding_count))
+    )
     if selected.empty:
         return {}
 
