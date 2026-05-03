@@ -1,4 +1,5 @@
 import pandas as pd
+from pandas.api.types import is_datetime64_any_dtype
 from rqalpha.apis import (
     get_positions,
     history_bars,
@@ -19,8 +20,10 @@ from rqalpha_factor_framework.factors.technical import calculate_technical_facto
 from rqalpha_factor_framework.factors.valuation import calculate_valuation_factors
 from rqalpha_factor_framework.filters import filter_by_avg_amount, filter_stocks
 from rqalpha_factor_framework.portfolio import (
+    apply_stock_weight_cap,
     build_equal_weight_targets,
     build_score_weight_targets,
+    market_timing_exposure,
 )
 from rqalpha_factor_framework.scoring import build_factor_scores, preprocess_factors
 
@@ -37,7 +40,6 @@ HISTORY_FIELDS = [
     "tradestatus",
     "peTTM",
     "pbMRQ",
-    "psTTM",
     "isST",
 ]
 FINANCIAL_TABLES = ("profit", "balance", "growth")
@@ -107,6 +109,36 @@ def _order_to_targets(targets):
         order_target_percent(order_book_id, float(weight))
 
 
+def _parse_datetime_value(value):
+    if pd.isna(value):
+        return pd.NaT
+
+    if isinstance(value, pd.Timestamp):
+        return value
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not pd.notna(value):
+            return pd.NaT
+        text = str(int(value)) if float(value).is_integer() else str(value)
+    else:
+        text = str(value)
+
+    if text.isdigit():
+        if len(text) == 8:
+            return pd.to_datetime(text, format="%Y%m%d", errors="coerce")
+        if len(text) == 14:
+            return pd.to_datetime(text, format="%Y%m%d%H%M%S", errors="coerce")
+
+    return pd.to_datetime(value, errors="coerce")
+
+
+def _parse_datetime_series(values):
+    series = pd.Series(values)
+    if is_datetime64_any_dtype(series):
+        return pd.to_datetime(series, errors="coerce")
+    return series.map(_parse_datetime_value)
+
+
 def _bars_to_frame(bars, order_book_id):
     if bars is None:
         return pd.DataFrame()
@@ -118,7 +150,7 @@ def _bars_to_frame(bars, order_book_id):
         return frame
 
     if "date" not in frame.columns and "datetime" in frame.columns:
-        frame["date"] = pd.to_datetime(frame["datetime"], errors="coerce")
+        frame["date"] = _parse_datetime_series(frame["datetime"])
     frame["order_book_id"] = order_book_id
     return frame
 
@@ -212,25 +244,86 @@ def _apply_filters(raw_factors, daily_data, config):
     )
 
 
+def _close_series_from_bars(bars):
+    if bars is None:
+        return pd.Series(dtype="float64")
+    if isinstance(bars, pd.DataFrame):
+        frame = bars
+        if "close" in frame.columns:
+            return pd.to_numeric(frame["close"], errors="coerce").dropna()
+        return pd.Series(dtype="float64")
+
+    frame = pd.DataFrame(bars)
+    if "close" in frame.columns:
+        return pd.to_numeric(frame["close"], errors="coerce").dropna()
+    if frame.shape[1] == 1:
+        return pd.to_numeric(frame.iloc[:, 0], errors="coerce").dropna()
+    return pd.to_numeric(pd.Series(bars), errors="coerce").dropna()
+
+
+def _resolve_total_exposure(config):
+    risk_config = config.get("risk", {})
+    timing_config = risk_config.get("market_timing", {})
+    full_exposure = timing_config.get("full_exposure", 1.0)
+
+    if not timing_config.get("enabled", False):
+        return float(full_exposure)
+
+    try:
+        bars = history_bars(
+            timing_config["index"],
+            250,
+            "1d",
+            "close",
+            skip_suspended=False,
+            include_now=True,
+            adjust_type="pre",
+        )
+    except Exception as exc:  # pragma: no cover - depends on live data backend
+        logger.warning(
+            "failed to fetch market timing index bars; using full exposure: {}".format(
+                exc
+            )
+        )
+        return float(full_exposure)
+
+    close = _close_series_from_bars(bars)
+    if len(close) < 120:
+        logger.warning("market timing data is insufficient; using full exposure")
+        return float(full_exposure)
+
+    return market_timing_exposure(
+        close,
+        full_exposure=full_exposure,
+        ma120_exposure=timing_config.get("ma120_exposure", full_exposure),
+        ma250_exposure=timing_config.get("ma250_exposure", full_exposure),
+    )
+
+
 def _build_targets(scored, current_positions, config):
     portfolio_config = config["portfolio"]
+    risk_config = config.get("risk", {})
     holding_count = portfolio_config["holding_count"]
-    total_exposure = 1.0
+    total_exposure = _resolve_total_exposure(config)
 
     if portfolio_config.get("weighting") == "score":
-        return build_score_weight_targets(
+        targets = build_score_weight_targets(
             scored,
             holding_count=holding_count,
             total_exposure=total_exposure,
         )
+    else:
+        targets = build_equal_weight_targets(
+            scored,
+            current_positions=current_positions,
+            holding_count=holding_count,
+            buffer_count=portfolio_config["buffer_count"],
+            total_exposure=total_exposure,
+        )
 
-    return build_equal_weight_targets(
-        scored,
-        current_positions=current_positions,
-        holding_count=holding_count,
-        buffer_count=portfolio_config["buffer_count"],
-        total_exposure=total_exposure,
-    )
+    if "max_stock_weight" in risk_config:
+        return apply_stock_weight_cap(targets, risk_config["max_stock_weight"])
+    return targets
 
 
 def rebalance(context, bar_dict):

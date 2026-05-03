@@ -40,6 +40,27 @@ def test_resolve_stock_pool_prefers_configured_symbols(monkeypatch):
     ]
 
 
+def test_history_fields_omit_unsupported_ps_ttm():
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    assert "psTTM" not in multi_factor_strategy.HISTORY_FIELDS
+
+
+def test_bars_to_frame_converts_numeric_datetime():
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    bars = np.array(
+        [(20230103, 10.0), (20230104000000, 11.0)],
+        dtype=[("datetime", "i8"), ("close", "f8")],
+    )
+
+    frame = multi_factor_strategy._bars_to_frame(bars, "000001.XSHE")
+
+    assert frame.loc[0, "date"] == pd.Timestamp("2023-01-03")
+    assert frame.loc[1, "date"] == pd.Timestamp("2023-01-04")
+    assert frame["order_book_id"].tolist() == ["000001.XSHE", "000001.XSHE"]
+
+
 def test_rebalance_orders_targets_and_sells_positions_outside_targets(monkeypatch):
     from rqalpha_factor_framework.strategies import multi_factor_strategy
 
@@ -63,7 +84,6 @@ def test_rebalance_orders_targets_and_sells_positions_outside_targets(monkeypatc
                 "tradestatus": 1,
                 "peTTM": 10 + rank,
                 "pbMRQ": 1 + rank * 0.1,
-                "psTTM": 2 + rank * 0.1,
                 "isST": 0,
             }
         )
@@ -135,6 +155,10 @@ def test_rebalance_orders_targets_and_sells_positions_outside_targets(monkeypatc
                 "min_avg_amount_20": 1,
                 "require_positive_pe_pb": True,
             },
+            "risk": {
+                "max_stock_weight": 1.0,
+                "market_timing": {"enabled": False},
+            },
         }
     )
 
@@ -145,6 +169,152 @@ def test_rebalance_orders_targets_and_sells_positions_outside_targets(monkeypatc
     assert sells == {"000003.XSHE": 0, "000004.XSHE": 0}
     assert len(buys) == 1
     assert next(iter(buys.values())) == 1.0
+
+
+def test_rebalance_tolerates_empty_financial_data(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    dates = pd.date_range("2023-01-01", periods=131, freq="D")
+    stocks = ["000001.XSHE", "000002.XSHE"]
+
+    def make_history(order_book_id):
+        rank = stocks.index(order_book_id)
+        close = np.linspace(10 + rank, 12 + rank, len(dates))
+        frame = pd.DataFrame(
+            {
+                "datetime": dates,
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": 1000000,
+                "amount": 100000000,
+                "turn": 1.0,
+                "tradestatus": 1,
+                "peTTM": 10 + rank,
+                "pbMRQ": 1 + rank,
+                "isST": 0,
+            }
+        )
+        return frame.to_records(index=False)
+
+    orders = []
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "history_bars",
+        lambda order_book_id, bar_count, frequency, fields, skip_suspended=True, include_now=True, adjust_type="pre": make_history(
+            order_book_id
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(multi_factor_strategy, "get_positions", lambda: [], raising=False)
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "order_target_percent",
+        lambda order_book_id, weight: orders.append((order_book_id, weight)),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "logger",
+        SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            warning=lambda *args, **kwargs: None,
+        ),
+    )
+
+    context = SimpleNamespace(
+        financial_data={},
+        factor_config={
+            "stock_pool": {"index": "000300.XSHG", "symbols": stocks},
+            "portfolio": {
+                "holding_count": 1,
+                "buffer_count": 1,
+                "weighting": "equal",
+            },
+            "factors": {
+                "category_weights": {
+                    "valuation": 0.15,
+                    "quality": 0.20,
+                    "growth": 0.20,
+                    "momentum": 0.15,
+                    "reversal": 0.05,
+                    "risk": 0.10,
+                    "liquidity": 0.05,
+                    "technical": 0.10,
+                },
+                "factor_weights": {},
+            },
+            "scoring": {
+                "missing": "median",
+                "winsorize_quantiles": [0.01, 0.99],
+            },
+            "filters": {
+                "exclude_st": True,
+                "min_listed_days": 180,
+                "min_avg_amount_20": 1,
+                "require_positive_pe_pb": True,
+            },
+            "risk": {
+                "max_stock_weight": 1.0,
+                "market_timing": {"enabled": False},
+            },
+        },
+    )
+
+    multi_factor_strategy.rebalance(context, bar_dict={})
+
+    assert any(weight > 0 for _, weight in orders)
+
+
+def test_build_targets_applies_market_timing_exposure_and_stock_cap(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    scored = pd.DataFrame(
+        {"score": [2.0, 1.0]},
+        index=["000001.XSHE", "000002.XSHE"],
+    )
+
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "history_bars",
+        lambda order_book_id, bar_count, frequency, fields, skip_suspended=True, include_now=True, adjust_type="pre": pd.DataFrame(
+            {"close": [100.0] * 129 + [50.0]}
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "logger",
+        SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            warning=lambda *args, **kwargs: None,
+        ),
+    )
+
+    targets = multi_factor_strategy._build_targets(
+        scored,
+        current_positions=[],
+        config={
+            "portfolio": {
+                "holding_count": 2,
+                "buffer_count": 2,
+                "weighting": "equal",
+            },
+            "risk": {
+                "max_stock_weight": 0.2,
+                "market_timing": {
+                    "enabled": True,
+                    "index": "000300.XSHG",
+                    "ma120_exposure": 0.6,
+                    "ma250_exposure": 0.3,
+                    "full_exposure": 1.0,
+                },
+            },
+        },
+    )
+
+    assert targets == {"000001.XSHE": 0.2, "000002.XSHE": 0.2}
 
 
 def test_build_rqalpha_config_sets_factor_config_path():
