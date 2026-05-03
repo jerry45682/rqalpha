@@ -1,8 +1,35 @@
 import pandas as pd
 
+from rqalpha_factor_framework import (
+    apply_stock_weight_cap as package_apply_stock_weight_cap,
+    build_equal_weight_targets as package_build_equal_weight_targets,
+    build_score_weight_targets as package_build_score_weight_targets,
+    can_buy as package_can_buy,
+    can_sell as package_can_sell,
+    filter_by_avg_amount as package_filter_by_avg_amount,
+    filter_stocks as package_filter_stocks,
+    market_timing_exposure as package_market_timing_exposure,
+)
 from rqalpha_factor_framework.filters.liquidity_filter import filter_by_avg_amount
 from rqalpha_factor_framework.filters.stock_filter import filter_stocks
 from rqalpha_factor_framework.filters.trading_filter import can_buy, can_sell
+from rqalpha_factor_framework.portfolio.constraints import (
+    apply_stock_weight_cap,
+    market_timing_exposure,
+)
+from rqalpha_factor_framework.portfolio.equal_weight import build_equal_weight_targets
+from rqalpha_factor_framework.portfolio.score_weight import build_score_weight_targets
+
+
+def test_top_level_package_exports_core_helpers():
+    assert package_filter_stocks is filter_stocks
+    assert package_filter_by_avg_amount is filter_by_avg_amount
+    assert package_can_buy is can_buy
+    assert package_can_sell is can_sell
+    assert package_build_equal_weight_targets is build_equal_weight_targets
+    assert package_build_score_weight_targets is build_score_weight_targets
+    assert package_apply_stock_weight_cap is apply_stock_weight_cap
+    assert package_market_timing_exposure is market_timing_exposure
 
 
 def test_stock_filter_removes_st_invalid_valuation_and_recent_listing():
