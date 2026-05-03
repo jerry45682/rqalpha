@@ -94,6 +94,15 @@ def test_score_weight_targets_returns_empty_when_all_scores_are_missing():
     assert build_score_weight_targets(scored, holding_count=2) == {}
 
 
+def test_score_weight_targets_equal_weights_when_selected_scores_are_equal():
+    scored = pd.DataFrame({"score": [2.0, 2.0, 2.0]}, index=["a", "b", "c"])
+
+    weights = build_score_weight_targets(scored, holding_count=2, total_exposure=0.6)
+
+    assert weights == {"a": 0.3, "b": 0.3}
+    assert abs(sum(weights.values()) - 0.6) < 1e-12
+
+
 def test_market_timing_exposure_uses_moving_averages():
     assert market_timing_exposure(pd.Series([1.0] * 119), 1.0, 0.5, 0.3) == 1.0
     assert market_timing_exposure(pd.Series([10.0] * 250), 1.0, 0.5, 0.3) == 1.0

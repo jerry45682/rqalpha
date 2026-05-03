@@ -74,6 +74,10 @@ def test_trading_filter_rejects_invalid_prices():
         (10.0, None),
         (float("nan"), 10.0),
         (10.0, float("nan")),
+        (float("inf"), 10.0),
+        (float("-inf"), 10.0),
+        (10.0, float("inf")),
+        (10.0, float("-inf")),
         ("bad", 10.0),
         (10.0, "bad"),
     ]
