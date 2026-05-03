@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from rqalpha_factor_framework.config.loader import load_config
@@ -8,11 +6,76 @@ from rqalpha_factor_framework.config.loader import load_config
 def test_load_default_config_has_required_sections():
     config = load_config()
 
+    assert set(config) == {
+        "stock_pool",
+        "rebalance",
+        "portfolio",
+        "factors",
+        "scoring",
+        "filters",
+        "risk",
+        "data",
+        "backtest",
+    }
     assert config["stock_pool"]["index"] == "000300.XSHG"
+    assert config["stock_pool"]["symbols"] == []
     assert config["rebalance"]["frequency"] == "monthly"
+    assert config["rebalance"]["tradingday"] == 1
     assert config["portfolio"]["holding_count"] == 30
     assert config["portfolio"]["buffer_count"] == 60
+    assert config["portfolio"]["weighting"] == "equal"
+    assert config["factors"]["enabled_categories"] == [
+        "valuation",
+        "quality",
+        "growth",
+        "momentum",
+        "reversal",
+        "risk",
+        "liquidity",
+        "technical",
+    ]
+    assert config["factors"]["category_weights"] == {
+        "valuation": 0.15,
+        "quality": 0.20,
+        "growth": 0.20,
+        "momentum": 0.15,
+        "reversal": 0.05,
+        "risk": 0.10,
+        "liquidity": 0.05,
+        "technical": 0.10,
+    }
+    assert config["factors"]["factor_weights"] == {}
+    assert config["scoring"]["missing"] == "median"
     assert config["scoring"]["winsorize_quantiles"] == [0.01, 0.99]
+    assert config["scoring"]["standardize"] == "zscore"
+    assert config["scoring"]["neutralize"] == "none"
+    assert config["filters"]["exclude_st"] is True
+    assert config["filters"]["exclude_suspended"] is True
+    assert config["filters"]["min_listed_days"] == 180
+    assert config["filters"]["min_avg_amount_20"] == 30000000
+    assert config["filters"]["require_positive_pe_pb"] is True
+    assert config["filters"]["skip_limit_up_buy"] is True
+    assert config["filters"]["skip_limit_down_sell"] is True
+    assert config["risk"]["max_stock_weight"] == 0.05
+    assert config["risk"]["max_industry_weight"] == 0.25
+    assert config["risk"]["market_timing"]["enabled"] is True
+    assert config["risk"]["market_timing"]["index"] == "000300.XSHG"
+    assert config["risk"]["market_timing"]["ma120_exposure"] == 0.50
+    assert config["risk"]["market_timing"]["ma250_exposure"] == 0.30
+    assert config["risk"]["market_timing"]["full_exposure"] == 1.00
+    assert config["data"]["cache_dir"] == ".rqalpha_factor_cache"
+    assert config["data"]["adjustflag"] == "2"
+    assert config["data"]["start_date"] == "2022-01-01"
+    assert config["data"]["end_date"] is None
+    assert config["backtest"]["start_date"] == "2023-01-03"
+    assert config["backtest"]["end_date"] == "2023-04-28"
+    assert config["backtest"]["frequency"] == "1d"
+    assert config["backtest"]["benchmark"] == "000300.XSHG"
+    assert config["backtest"]["initial_cash"] == 1000000
+    assert (
+        config["backtest"]["result_path"]
+        == "rqalpha_factor_framework/backtest/multi_factor_result.pkl"
+    )
     assert abs(sum(config["factors"]["category_weights"].values()) - 1.0) < 1e-12
 
 
@@ -134,6 +197,6 @@ def test_load_config_returns_are_isolated_between_calls(tmp_path):
 
     assert second["portfolio"]["holding_count"] == 5
     assert second["portfolio"]["buffer_count"] == 60
-    assert second["factors"]["category_weights"]["valuation"] == 0.25
+    assert second["factors"]["category_weights"]["valuation"] == 0.15
     assert third["portfolio"]["holding_count"] == 30
-    assert third["factors"]["category_weights"]["valuation"] == 0.25
+    assert third["factors"]["category_weights"]["valuation"] == 0.15
