@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 import pickle
 import re
 from pathlib import Path
@@ -15,12 +16,16 @@ def export_result_pickle(path, output_dir=None):
     with path.open("rb") as result_file:
         result = pickle.load(result_file)
 
-    exported = []
-    if hasattr(result, "items"):
-        items = result.items()
-    else:
-        items = [("result", result)]
+    if hasattr(result, "to_csv"):
+        output_path = output_dir / "result.csv"
+        result.to_csv(output_path, encoding="utf-8-sig")
+        return [output_path]
 
+    exported = []
+    if not isinstance(result, Mapping):
+        return exported
+
+    items = result.items()
     for name, value in items:
         if not hasattr(value, "to_csv"):
             continue
