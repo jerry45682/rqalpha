@@ -101,3 +101,102 @@ def test_unknown_factor_columns_are_processed_without_direction_adjustment():
     processed = preprocess_factors(raw, FACTOR_METADATA)
 
     assert processed.loc["c", "custom_factor"] > processed.loc["a", "custom_factor"]
+
+
+def test_build_factor_scores_rejects_unknown_category_weight():
+    processed = pd.DataFrame({"pe_ttm": [1.0]}, index=["a"])
+
+    with pytest.raises(ValueError, match="category_weights"):
+        build_factor_scores(processed, FACTOR_METADATA, {"valuaton": 1.0})
+
+
+def test_build_factor_scores_requires_weights_for_processed_categories():
+    processed = pd.DataFrame({"pe_ttm": [1.0]}, index=["a"])
+
+    with pytest.raises(ValueError, match="valuation"):
+        build_factor_scores(processed, FACTOR_METADATA, {"momentum": 1.0})
+
+
+def test_build_factor_scores_rejects_invalid_category_weight_values():
+    processed = pd.DataFrame({"pe_ttm": [1.0]}, index=["a"])
+
+    with pytest.raises(ValueError, match="category_weights"):
+        build_factor_scores(processed, FACTOR_METADATA, {"valuation": -1.0})
+
+    with pytest.raises(ValueError, match="category_weights"):
+        build_factor_scores(processed, FACTOR_METADATA, {"valuation": "heavy"})
+
+
+def test_build_factor_scores_does_not_renormalize_missing_categories():
+    processed = pd.DataFrame({"pe_ttm": [2.0]}, index=["a"])
+
+    scored = build_factor_scores(
+        processed,
+        FACTOR_METADATA,
+        {"valuation": 0.5, "momentum": 0.5},
+    )
+
+    assert scored.loc["a", "valuation_score"] == 2.0
+    assert scored.loc["a", "score"] == 1.0
+
+
+def test_build_factor_scores_rejects_zero_total_factor_weights():
+    processed = pd.DataFrame({"pe_ttm": [2.0], "pb": [4.0]}, index=["a"])
+
+    with pytest.raises(ValueError, match="factor_weights"):
+        build_factor_scores(
+            processed,
+            FACTOR_METADATA,
+            {"valuation": 1.0},
+            factor_weights={"valuation": {"pe_ttm": 0.0, "pb": 0.0}},
+        )
+
+
+def test_build_factor_scores_rejects_negative_factor_weights():
+    processed = pd.DataFrame({"pe_ttm": [2.0], "pb": [4.0]}, index=["a"])
+
+    with pytest.raises(ValueError, match="factor_weights"):
+        build_factor_scores(
+            processed,
+            FACTOR_METADATA,
+            {"valuation": 1.0},
+            factor_weights={"valuation": {"pe_ttm": -1.0}},
+        )
+
+
+def test_build_factor_scores_rejects_non_numeric_factor_weights():
+    processed = pd.DataFrame({"pe_ttm": [2.0], "pb": [4.0]}, index=["a"])
+
+    with pytest.raises(ValueError, match="factor_weights"):
+        build_factor_scores(
+            processed,
+            FACTOR_METADATA,
+            {"valuation": 1.0},
+            factor_weights={"valuation": {"pe_ttm": "heavy"}},
+        )
+
+
+def test_build_factor_scores_rejects_unknown_factor_weights():
+    processed = pd.DataFrame({"pe_ttm": [2.0]}, index=["a"])
+
+    with pytest.raises(ValueError, match="factor_weights"):
+        build_factor_scores(
+            processed,
+            FACTOR_METADATA,
+            {"valuation": 1.0},
+            factor_weights={"valuation": {"roe": 1.0}},
+        )
+
+
+def test_build_factor_scores_uses_zero_for_unspecified_factor_weights():
+    processed = pd.DataFrame({"pe_ttm": [2.0], "pb": [100.0]}, index=["a"])
+
+    scored = build_factor_scores(
+        processed,
+        FACTOR_METADATA,
+        {"valuation": 1.0},
+        factor_weights={"valuation": {"pe_ttm": 1.0}},
+    )
+
+    assert scored.loc["a", "valuation_score"] == 2.0
+    assert scored.loc["a", "score"] == 2.0
