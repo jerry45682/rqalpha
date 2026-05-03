@@ -47,6 +47,26 @@ def sorted_frame(frame):
     return frame
 
 
+def sorted_financial_frame(frame):
+    if frame is None or frame.empty:
+        return pd.DataFrame()
+    for column in ("pubDate", "statDate", "date"):
+        if column in frame.columns:
+            return frame.sort_values(column)
+    return frame
+
+
+def numeric_value(value):
+    return pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+
+
+def latest_financial_numeric(frame, column):
+    data = sorted_financial_frame(frame)
+    if data.empty or column not in data.columns:
+        return np.nan
+    return numeric_value(data.iloc[-1].get(column, np.nan))
+
+
 def numeric_series(frame, column):
     if frame.empty or column not in frame.columns:
         return pd.Series(dtype="float64")

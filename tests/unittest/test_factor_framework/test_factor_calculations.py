@@ -195,3 +195,55 @@ def test_financial_factors_preserve_multiple_order_book_ids_in_index():
 
     assert list(quality.index) == ["600000.XSHG", "000001.XSHE"]
     assert list(growth.index) == ["600000.XSHG", "000001.XSHE"]
+
+
+def test_financial_factors_select_latest_financial_date_from_unsorted_tables():
+    financial = {
+        "600000.XSHG": {
+            "profit": pd.DataFrame(
+                [
+                    {
+                        "pubDate": "2024-04-30",
+                        "roe": 0.12,
+                        "roa": 0.03,
+                        "gross_margin": 0.25,
+                    },
+                    {
+                        "pubDate": "2023-04-30",
+                        "roe": 0.08,
+                        "roa": 0.02,
+                        "gross_margin": 0.20,
+                    },
+                ]
+            ),
+            "balance": pd.DataFrame(
+                [
+                    {"statDate": "2024-03-31", "debt_to_asset": 0.55},
+                    {"statDate": "2023-03-31", "debt_to_asset": 0.45},
+                ]
+            ),
+            "growth": pd.DataFrame(
+                [
+                    {
+                        "statDate": "2024-03-31",
+                        "revenue_growth_yoy": 0.10,
+                        "net_profit_growth_yoy": 0.08,
+                        "operating_cashflow_growth_yoy": 0.05,
+                    },
+                    {
+                        "statDate": "2023-03-31",
+                        "revenue_growth_yoy": 0.04,
+                        "net_profit_growth_yoy": 0.03,
+                        "operating_cashflow_growth_yoy": 0.02,
+                    },
+                ]
+            ),
+        }
+    }
+
+    quality = calculate_quality_factors(financial)
+    growth = calculate_growth_factors(financial)
+
+    assert quality.loc["600000.XSHG", "roe"] == 0.12
+    assert quality.loc["600000.XSHG", "debt_to_asset"] == 0.55
+    assert growth.loc["600000.XSHG", "net_profit_growth_yoy"] == 0.08

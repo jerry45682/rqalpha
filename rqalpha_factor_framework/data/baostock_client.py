@@ -40,8 +40,6 @@ GROWTH_FIELD_ALIASES = {
     "YOYNI": "net_profit_growth_yoy",
     "YOYPNI": "net_profit_growth_yoy",
     "net_profit_yoy": "net_profit_growth_yoy",
-    "CFOToGr": "operating_cashflow_growth_yoy",
-    "net_operate_cash_flow_yoy": "operating_cashflow_growth_yoy",
 }
 
 
