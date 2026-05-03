@@ -126,6 +126,16 @@ def test_build_factor_scores_rejects_invalid_category_weight_values():
     with pytest.raises(ValueError, match="category_weights"):
         build_factor_scores(processed, FACTOR_METADATA, {"valuation": "heavy"})
 
+    with pytest.raises(ValueError, match="category_weights"):
+        build_factor_scores(processed, FACTOR_METADATA, {"valuation": True})
+
+
+def test_build_factor_scores_rejects_non_mapping_category_weights():
+    processed = pd.DataFrame({"pe_ttm": [1.0]}, index=["a"])
+
+    with pytest.raises(ValueError, match="category_weights"):
+        build_factor_scores(processed, FACTOR_METADATA, ["valuation"])
+
 
 def test_build_factor_scores_does_not_renormalize_missing_categories():
     processed = pd.DataFrame({"pe_ttm": [2.0]}, index=["a"])
@@ -173,6 +183,34 @@ def test_build_factor_scores_rejects_non_numeric_factor_weights():
             FACTOR_METADATA,
             {"valuation": 1.0},
             factor_weights={"valuation": {"pe_ttm": "heavy"}},
+        )
+
+    with pytest.raises(ValueError, match="factor_weights"):
+        build_factor_scores(
+            processed,
+            FACTOR_METADATA,
+            {"valuation": 1.0},
+            factor_weights={"valuation": {"pe_ttm": True}},
+        )
+
+
+def test_build_factor_scores_rejects_non_mapping_factor_weights():
+    processed = pd.DataFrame({"pe_ttm": [2.0], "pb": [4.0]}, index=["a"])
+
+    with pytest.raises(ValueError, match="factor_weights"):
+        build_factor_scores(
+            processed,
+            FACTOR_METADATA,
+            {"valuation": 1.0},
+            factor_weights=["valuation"],
+        )
+
+    with pytest.raises(ValueError, match="factor_weights"):
+        build_factor_scores(
+            processed,
+            FACTOR_METADATA,
+            {"valuation": 1.0},
+            factor_weights={"valuation": ["pe_ttm"]},
         )
 
 

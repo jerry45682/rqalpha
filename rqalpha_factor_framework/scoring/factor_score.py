@@ -1,10 +1,11 @@
+from collections.abc import Mapping
 from numbers import Real
 
 import pandas as pd
 
 
 def _validate_non_negative_number(value, label):
-    if not isinstance(value, Real) or pd.isna(value) or value < 0:
+    if isinstance(value, bool) or not isinstance(value, Real) or pd.isna(value) or value < 0:
         raise ValueError(f"{label} weights must be non-negative numbers")
     return float(value)
 
@@ -19,6 +20,9 @@ def _metadata_categories(metadata):
 
 
 def _validate_category_weights(category_weights, known_categories, active_categories):
+    if not isinstance(category_weights, Mapping):
+        raise ValueError("category_weights must be a mapping")
+
     validated = {}
     for category, weight in category_weights.items():
         if category not in known_categories:
@@ -33,10 +37,15 @@ def _validate_category_weights(category_weights, known_categories, active_catego
 
 
 def _validate_factor_weights(factor_weights, known_categories, factor_categories):
+    if not isinstance(factor_weights, Mapping):
+        raise ValueError("factor_weights must be a mapping")
+
     validated = {}
     for category, weights in factor_weights.items():
         if category not in known_categories:
             raise ValueError(f"factor_weights contains unknown category: {category}")
+        if not isinstance(weights, Mapping):
+            raise ValueError(f"factor_weights for category {category} must be a mapping")
 
         validated[category] = {}
         for factor, weight in weights.items():
