@@ -7,12 +7,12 @@ FACTOR_COLUMNS = ["volatility_60", "max_drawdown_120"]
 
 
 def _max_drawdown(close, window):
-    if len(close) < 2:
+    if len(close) < window:
         return np.nan
     values = close.tail(window)
     running_max = values.cummax()
     drawdown = values / running_max - 1.0
-    return drawdown.min()
+    return abs(drawdown.min())
 
 
 def calculate_risk_factors(daily_data):
