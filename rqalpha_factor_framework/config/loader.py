@@ -24,7 +24,10 @@ def _deep_merge(base, overrides):
 
 def _read_yaml(path):
     with Path(path).open("r", encoding="utf-8") as config_file:
-        data = yaml.safe_load(config_file)
+        try:
+            data = yaml.safe_load(config_file)
+        except yaml.YAMLError as exc:
+            raise ValueError("invalid YAML config") from exc
     if data is None:
         return {}
     if not isinstance(data, Mapping):

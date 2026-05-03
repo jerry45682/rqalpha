@@ -119,6 +119,14 @@ def test_load_config_rejects_non_mapping_root(tmp_path):
         load_config(path)
 
 
+def test_load_config_rejects_invalid_yaml(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_text("portfolio: [", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid YAML|invalid yaml"):
+        load_config(path)
+
+
 def test_load_config_rejects_null_category_weights(tmp_path):
     path = tmp_path / "bad.yaml"
     path.write_text(
