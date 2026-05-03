@@ -1,6 +1,10 @@
 from pathlib import Path
+import re
 
 import pandas as pd
+
+
+_SAFE_NAME_PATTERN = re.compile(r"[^A-Za-z0-9_-]")
 
 
 class CsvCache:
@@ -8,21 +12,36 @@ class CsvCache:
         self.root = Path(root)
 
     def path_for(self, namespace, key):
-        directory = self.root / namespace
+        root = self.root.resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        safe_namespace = _safe_name(namespace)
+        safe_key = _safe_name(key)
+        directory = root / safe_namespace
         directory.mkdir(parents=True, exist_ok=True)
-        filename = f"{str(key).replace('.', '_').replace('/', '_')}.csv"
-        return directory / filename
+        path = directory / f"{safe_key}.csv"
+        if not path.resolve().is_relative_to(root):
+            raise ValueError("cache path escaped root")
+        return path
 
     def load_or_fetch(self, namespace, key, fetcher):
         path = self.path_for(namespace, key)
         if path.exists():
-            try:
-                return pd.read_csv(path)
-            except pd.errors.EmptyDataError:
-                return pd.DataFrame()
+            return _read_csv(path)
 
         frame = fetcher()
         if frame is None:
             frame = pd.DataFrame()
         frame.to_csv(path, index=False, encoding="utf-8-sig")
-        return frame
+        return _read_csv(path)
+
+
+def _safe_name(value):
+    safe = _SAFE_NAME_PATTERN.sub("_", str(value))
+    return safe or "_"
+
+
+def _read_csv(path):
+    try:
+        return pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()

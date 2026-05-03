@@ -12,13 +12,14 @@ class FactorStore:
         self.client = client
 
     def get_daily(self, order_book_id, start_date, end_date):
-        path = self.cache.path_for("daily", order_book_id)
+        key = self._daily_key(order_book_id, start_date, end_date)
+        path = self.cache.path_for("daily", key)
         if self.client is None and not path.exists():
             raise RuntimeError("data client is required when daily cache is missing")
 
         return self.cache.load_or_fetch(
             "daily",
-            order_book_id,
+            key,
             lambda: self.client.query_daily(order_book_id, start_date, end_date),
         )
 
@@ -42,18 +43,32 @@ class FactorStore:
 
         for order_book_id in order_book_ids:
             frame = self.read_financial(order_book_id, table)
-            rows.append(self._latest_financial_values(frame, as_of_date, fields))
+            rows.append(
+                self._latest_financial_values(
+                    frame, order_book_id, as_of_date, fields
+                )
+            )
             index.append(order_book_id)
 
         return pd.DataFrame(rows, index=index, columns=fields)
 
     @staticmethod
-    def _latest_financial_values(frame, as_of_date, fields):
+    def _daily_key(order_book_id, start_date, end_date):
+        return f"{order_book_id}_{start_date}_{end_date}"
+
+    @staticmethod
+    def _latest_financial_values(frame, order_book_id, as_of_date, fields):
         values = {field: pd.NA for field in fields}
         if frame.empty or "pub_date" not in frame.columns:
             return values
 
         dated = frame.copy()
+        for column in ("order_book_id", "code"):
+            if column in dated.columns:
+                dated = dated[dated[column] == order_book_id]
+        if dated.empty:
+            return values
+
         dated["pub_date"] = pd.to_datetime(dated["pub_date"], errors="coerce")
         dated = dated[dated["pub_date"] <= as_of_date].sort_values("pub_date")
         if dated.empty:
