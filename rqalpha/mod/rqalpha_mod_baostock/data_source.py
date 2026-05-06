@@ -27,6 +27,32 @@ BAOSTOCK_FIELDS = [
     "isST",
 ]
 
+FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow")
+FINANCIAL_FIELD_ALIASES = {
+    "profit": {
+        "roeAvg": "roe",
+        "ROA": "roa",
+        "roa": "roa",
+        "gpMargin": "gross_margin",
+    },
+    "balance": {
+        "liabilityToAsset": "debt_to_asset",
+        "assetLiabRatio": "debt_to_asset",
+    },
+    "growth": {
+        "YOYRevenue": "revenue_growth_yoy",
+        "YOYOperatingRevenue": "revenue_growth_yoy",
+        "operating_revenue_yoy": "revenue_growth_yoy",
+        "YOYNI": "net_profit_growth_yoy",
+        "YOYPNI": "net_profit_growth_yoy",
+        "net_profit_yoy": "net_profit_growth_yoy",
+    },
+    "cash_flow": {
+        "CFOToOR": "operating_cashflow_to_revenue",
+        "CFOToNP": "operating_cashflow_to_net_profit",
+    },
+}
+
 BAR_DTYPE = np.dtype([
     ("datetime", "<u8"),
     ("open", "<f8"),
@@ -70,6 +96,60 @@ def fetch_baostock_daily_data(order_book_id, start_date, end_date, adjustflag):
         return pd.DataFrame(rows, columns=rs.fields)
     finally:
         bs.logout()
+
+
+def fetch_baostock_financial_data(order_book_id, table, year, quarter):
+    try:
+        import baostock as bs
+    except ImportError:
+        raise RuntimeError("未安装 baostock，请先执行 pip install baostock")
+
+    query_name = {
+        "profit": "query_profit_data",
+        "balance": "query_balance_data",
+        "growth": "query_growth_data",
+        "cash_flow": "query_cash_flow_data",
+    }.get(table)
+    if query_name is None:
+        raise ValueError("unsupported baostock financial table: {}".format(table))
+
+    lg = bs.login()
+    if lg.error_code != "0":
+        raise RuntimeError("Baostock 登录失败: {}".format(lg.error_msg))
+    try:
+        query = getattr(bs, query_name)
+        rs = query(code=rqalpha_to_baostock(order_book_id), year=year, quarter=quarter)
+        if rs.error_code != "0":
+            raise RuntimeError("Baostock 财务查询失败: {}".format(rs.error_msg))
+        rows = []
+        while rs.next():
+            rows.append(rs.get_row_data())
+        frame = pd.DataFrame(rows, columns=rs.fields)
+    finally:
+        bs.logout()
+
+    return normalize_financial_data(frame, order_book_id, table, year, quarter)
+
+
+def normalize_financial_data(frame, order_book_id, table, year=None, quarter=None):
+    frame = pd.DataFrame() if frame is None else pd.DataFrame(frame).copy()
+    if frame.empty:
+        return frame
+    aliases = FINANCIAL_FIELD_ALIASES.get(table, {})
+    for source, target in aliases.items():
+        if source in frame.columns and target not in frame.columns:
+            frame[target] = frame[source]
+    if "pubDate" in frame.columns and "pub_date" not in frame.columns:
+        frame["pub_date"] = frame["pubDate"]
+    if "statDate" in frame.columns and "stat_date" not in frame.columns:
+        frame["stat_date"] = frame["statDate"]
+    if "order_book_id" not in frame.columns:
+        frame["order_book_id"] = order_book_id
+    if year is not None and "year" not in frame.columns:
+        frame["year"] = int(year)
+    if quarter is not None and "quarter" not in frame.columns:
+        frame["quarter"] = int(quarter)
+    return frame
 
 
 def _to_float(value):
@@ -116,19 +196,57 @@ class BaostockDataSource(BaseDataSource):
         self._start_date = str(mod_config.start_date)
         end_date = mod_config.end_date
         self._end_date = str(end_date) if end_date else str(base_config.end_date)
+        self._runtime_fetch = bool(getattr(mod_config, "runtime_fetch", True))
+        self._financial_tables = tuple(
+            getattr(mod_config, "financial_tables", FINANCIAL_TABLES) or ()
+        )
 
     def _fetch_baostock(self, order_book_id, start_date, end_date, adjustflag):
         return fetch_baostock_daily_data(order_book_id, start_date, end_date, adjustflag)
 
+    def _fetch_baostock_financial(self, order_book_id, table, year, quarter):
+        return fetch_baostock_financial_data(order_book_id, table, year, quarter)
+
     def _all_baostock_day_bars(self, order_book_id):
-        data = self._cache.load_or_fetch(
-            order_book_id,
-            self._start_date,
-            self._end_date,
-            self._adjustflag,
-            self._fetch_baostock,
-        )
+        runtime_fetch = getattr(self, "_runtime_fetch", True)
+        if hasattr(self._cache, "load_daily_range"):
+            data = self._cache.load_daily_range(
+                order_book_id,
+                self._start_date,
+                self._end_date,
+                self._adjustflag,
+                self._fetch_baostock if runtime_fetch else None,
+            )
+        else:
+            data = self._cache.load_or_fetch(
+                order_book_id,
+                self._start_date,
+                self._end_date,
+                self._adjustflag,
+                self._fetch_baostock,
+            )
+        if data is None:
+            data = pd.DataFrame()
         return dataframe_to_bars(data)
+
+    def prepare_data(self, symbols=None):
+        symbols = list(symbols or [])
+        for order_book_id in symbols:
+            self._cache.load_daily_range(
+                order_book_id,
+                self._start_date,
+                self._end_date,
+                self._adjustflag,
+                self._fetch_baostock,
+            )
+            year_quarters = _financial_year_quarters(self._start_date, self._end_date)
+            for table in self._financial_tables:
+                self._cache.update_financial_quarters(
+                    order_book_id,
+                    table,
+                    year_quarters,
+                    self._fetch_baostock_financial,
+                )
 
     def get_bar(self, instrument, dt, frequency):
         if frequency != "1d":
@@ -187,3 +305,17 @@ class BaostockDataSource(BaseDataSource):
             datetime.strptime(self._start_date, "%Y-%m-%d").date(),
             datetime.strptime(self._end_date, "%Y-%m-%d").date(),
         )
+
+
+def _financial_year_quarters(start_date, end_date):
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    start_year = start.year - 1
+    quarters = []
+    for year in range(start_year, end.year + 1):
+        for quarter in range(1, 5):
+            quarter_start_month = (quarter - 1) * 3 + 1
+            quarter_start = pd.Timestamp(year=year, month=quarter_start_month, day=1)
+            if quarter_start <= end:
+                quarters.append((year, quarter))
+    return quarters

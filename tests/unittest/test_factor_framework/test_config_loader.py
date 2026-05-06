@@ -31,6 +31,8 @@ def test_load_default_config_has_required_sections():
     assert config["portfolio"]["weighting"] == "equal"
     assert config["factors"]["enabled_categories"] == [
         "valuation",
+        "quality",
+        "growth",
         "momentum",
         "reversal",
         "risk",
@@ -38,12 +40,14 @@ def test_load_default_config_has_required_sections():
         "technical",
     ]
     assert config["factors"]["category_weights"] == {
-        "valuation": 0.25,
-        "momentum": 0.25,
-        "reversal": 0.10,
-        "risk": 0.15,
-        "liquidity": 0.10,
-        "technical": 0.15,
+        "valuation": 0.15,
+        "quality": 0.20,
+        "growth": 0.20,
+        "momentum": 0.15,
+        "reversal": 0.05,
+        "risk": 0.10,
+        "liquidity": 0.05,
+        "technical": 0.10,
     }
     assert config["factors"]["factor_weights"] == {}
     assert config["scoring"]["missing"] == "median"
@@ -68,6 +72,14 @@ def test_load_default_config_has_required_sections():
     assert config["data"]["adjustflag"] == "2"
     assert config["data"]["start_date"] == "2022-01-01"
     assert config["data"]["end_date"] is None
+    assert config["data"]["prefetch"] is True
+    assert config["data"]["runtime_fetch"] is True
+    assert config["data"]["runtime_fetch_financial"] is False
+    assert config["data"]["financial_tables"] == [
+        "profit",
+        "balance",
+        "growth",
+    ]
     assert config["backtest"]["start_date"] == "2023-01-03"
     assert config["backtest"]["end_date"] == "2023-04-28"
     assert config["backtest"]["frequency"] == "1d"
@@ -79,8 +91,8 @@ def test_load_default_config_has_required_sections():
         == "rqalpha_factor_framework/backtest/multi_factor_result.pkl"
     )
     assert abs(sum(config["factors"]["category_weights"].values()) - 1.0) < 1e-12
-    assert "quality" not in config["factors"]["enabled_categories"]
-    assert "growth" not in config["factors"]["enabled_categories"]
+    assert "quality" in config["factors"]["enabled_categories"]
+    assert "growth" in config["factors"]["enabled_categories"]
 
 
 def test_load_config_merges_user_overrides(tmp_path):
@@ -209,6 +221,6 @@ def test_load_config_returns_are_isolated_between_calls(tmp_path):
 
     assert second["portfolio"]["holding_count"] == 5
     assert second["portfolio"]["buffer_count"] == 60
-    assert second["factors"]["category_weights"]["valuation"] == 0.25
+    assert second["factors"]["category_weights"]["valuation"] == 0.15
     assert third["portfolio"]["holding_count"] == 30
-    assert third["factors"]["category_weights"]["valuation"] == 0.25
+    assert third["factors"]["category_weights"]["valuation"] == 0.15

@@ -7,8 +7,10 @@ from rqalpha.apis import (
     logger,
     order_target_percent,
 )
+from rqalpha.environment import Environment
 
 from rqalpha_factor_framework.config import load_config
+from rqalpha_factor_framework.data import BaostockClient, FactorStore
 from rqalpha_factor_framework.factors import FACTOR_METADATA
 from rqalpha_factor_framework.factors.growth import calculate_growth_factors
 from rqalpha_factor_framework.factors.liquidity import calculate_liquidity_factors
@@ -182,8 +184,69 @@ def _fetch_daily_data(stock_pool):
     return daily_data
 
 
+def _context_datetime(context):
+    for name in ("now", "current_dt", "trading_dt"):
+        value = getattr(context, name, None)
+        if value is not None:
+            parsed = pd.to_datetime(value, errors="coerce")
+            if pd.notna(parsed):
+                return parsed
+
+    parsed = _environment_datetime()
+    if pd.notna(parsed):
+        return parsed
+    raise ValueError("trading date is unavailable from context or RQAlpha environment")
+
+
+def _environment_datetime():
+    try:
+        env = Environment.get_instance()
+    except RuntimeError:
+        return pd.NaT
+
+    for name in ("trading_dt", "calendar_dt"):
+        value = getattr(env, name, None)
+        if value is not None:
+            parsed = pd.to_datetime(value, errors="coerce")
+            if pd.notna(parsed):
+                return parsed
+    return pd.NaT
+
+
 def _resolve_financial_data(context, stock_pool):
     supplied = getattr(context, "financial_data", None)
+    stock_pool = list(stock_pool)
+    if isinstance(supplied, dict) and supplied:
+        financial_data = {}
+        for order_book_id in stock_pool:
+            tables = supplied.get(order_book_id, {}) or {}
+            financial_data[order_book_id] = {
+                table: tables.get(table, pd.DataFrame()) for table in FINANCIAL_TABLES
+            }
+        return financial_data
+
+    data_config = getattr(context, "factor_config", {}).get("data", {})
+    cache_dir = data_config.get("cache_dir")
+    if cache_dir:
+        client = None
+        if data_config.get("runtime_fetch_financial", False):
+            client = BaostockClient(adjustflag=data_config.get("adjustflag", "2"))
+        store = FactorStore(cache_dir, client=client)
+        as_of_date = _context_datetime(context)
+        start_date = data_config.get("start_date")
+        end_date = data_config.get("end_date") or as_of_date
+        if client is not None:
+            try:
+                store.prepare_financials(
+                    stock_pool,
+                    start_date or as_of_date,
+                    end_date,
+                    tables=FINANCIAL_TABLES,
+                )
+            except Exception as exc:  # pragma: no cover - depends on live baostock
+                logger.warning("failed to update baostock financial cache: {}".format(exc))
+        return store.get_financial_tables(stock_pool, as_of_date, tables=FINANCIAL_TABLES)
+
     financial_data = {}
     for order_book_id in stock_pool:
         tables = {}
@@ -358,6 +421,29 @@ def _enabled_factor_columns(frame, config):
     ]
 
 
+def _raise_if_enabled_financial_data_missing(frame, config):
+    enabled_categories = config.get("factors", {}).get("enabled_categories")
+    if enabled_categories is None:
+        enabled_categories = {meta.category for meta in FACTOR_METADATA.values()}
+    else:
+        enabled_categories = set(enabled_categories)
+
+    for category in ("quality", "growth"):
+        if category not in enabled_categories:
+            continue
+        columns = [
+            column
+            for column, meta in FACTOR_METADATA.items()
+            if meta.category == category and column in frame.columns
+        ]
+        if columns and frame[columns].isna().all().all():
+            raise ValueError(
+                "financial factor data is missing for enabled category: {}".format(
+                    category
+                )
+            )
+
+
 def _ordered_enabled_categories(config):
     ordered_categories = []
     for meta in FACTOR_METADATA.values():
@@ -412,6 +498,7 @@ def rebalance(context, bar_dict):
         _order_to_targets({})
         return
 
+    _raise_if_enabled_financial_data_missing(filtered_factors, config)
     factor_columns = _enabled_factor_columns(filtered_factors, config)
     processed = preprocess_factors(
         filtered_factors[factor_columns],

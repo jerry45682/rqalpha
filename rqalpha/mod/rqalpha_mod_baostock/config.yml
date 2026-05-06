@@ -6,3 +6,10 @@ mod:
     adjustflag: "2"
     start_date: 2025-01-01
     end_date: 2026-04-30
+    prefetch: false
+    symbols: []
+    runtime_fetch: true
+    financial_tables:
+      - profit
+      - balance
+      - growth

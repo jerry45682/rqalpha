@@ -17,18 +17,22 @@ portfolio:
 factors:
   enabled_categories:
     - valuation
+    - quality
+    - growth
     - momentum
     - reversal
     - risk
     - liquidity
     - technical
   category_weights:
-    valuation: 0.25
-    momentum: 0.25
-    reversal: 0.10
-    risk: 0.15
-    liquidity: 0.10
-    technical: 0.15
+    valuation: 0.15
+    quality: 0.20
+    growth: 0.20
+    momentum: 0.15
+    reversal: 0.05
+    risk: 0.10
+    liquidity: 0.05
+    technical: 0.10
   factor_weights: {}
 
 scoring:
@@ -63,6 +67,13 @@ data:
   adjustflag: "2"
   start_date: "2022-01-01"
   end_date:
+  prefetch: true
+  runtime_fetch: true
+  runtime_fetch_financial: false
+  financial_tables:
+    - profit
+    - balance
+    - growth
 
 backtest:
   start_date: "2023-01-03"

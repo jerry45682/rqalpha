@@ -42,6 +42,11 @@ GROWTH_FIELD_ALIASES = {
     "net_profit_yoy": "net_profit_growth_yoy",
 }
 
+CASH_FLOW_FIELD_ALIASES = {
+    "CFOToOR": "operating_cashflow_to_revenue",
+    "CFOToNP": "operating_cashflow_to_net_profit",
+}
+
 
 def rqalpha_to_baostock(order_book_id):
     code, exchange = order_book_id.split(".")
@@ -123,6 +128,38 @@ class BaostockClient:
                 quarter=quarter,
             )
             return _normalize_fields(_result_to_frame(result), GROWTH_FIELD_ALIASES)
+
+    def query_cash_flow_data(self, order_book_id, year, quarter):
+        with baostock_session() as bs:
+            result = bs.query_cash_flow_data(
+                code=rqalpha_to_baostock(order_book_id),
+                year=year,
+                quarter=quarter,
+            )
+            return _normalize_fields(_result_to_frame(result), CASH_FLOW_FIELD_ALIASES)
+
+    def query_financial_table(self, order_book_id, table, year, quarter):
+        query = {
+            "profit": self.query_profit_data,
+            "balance": self.query_balance_data,
+            "growth": self.query_growth_data,
+            "cash_flow": self.query_cash_flow_data,
+        }.get(table)
+        if query is None:
+            raise ValueError(f"unsupported baostock financial table: {table}")
+
+        frame = query(order_book_id, year, quarter)
+        if frame.empty:
+            return frame
+        if "pubDate" in frame.columns and "pub_date" not in frame.columns:
+            frame["pub_date"] = frame["pubDate"]
+        if "statDate" in frame.columns and "stat_date" not in frame.columns:
+            frame["stat_date"] = frame["statDate"]
+        if "order_book_id" not in frame.columns:
+            frame["order_book_id"] = order_book_id
+        frame["year"] = int(year)
+        frame["quarter"] = int(quarter)
+        return frame
 
 
 def _result_to_frame(result):

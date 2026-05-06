@@ -48,6 +48,11 @@ def build_rqalpha_config(config_path=None):
     factor_config = load_config(factor_config_path)
     backtest_config = factor_config["backtest"]
     data_config = factor_config["data"]
+    symbols = factor_config["stock_pool"].get("symbols", [])
+    if data_config.get("prefetch", True) and not symbols:
+        raise ValueError(
+            "index pool prefetch requires explicit symbols or offline preparation"
+        )
     result_path = _resolve_path(backtest_config.get("result_path"), DEFAULT_RESULT_PATH)
     result_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -85,6 +90,13 @@ def build_rqalpha_config(config_path=None):
                 "adjustflag": data_config["adjustflag"],
                 "start_date": data_config["start_date"],
                 "end_date": data_config["end_date"],
+                "prefetch": data_config.get("prefetch", True),
+                "runtime_fetch": data_config.get("runtime_fetch", True),
+                "symbols": symbols,
+                "financial_tables": data_config.get(
+                    "financial_tables",
+                    ["profit", "balance", "growth"],
+                ),
             },
         },
     }

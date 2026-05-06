@@ -170,3 +170,88 @@ def test_factor_store_matches_baostock_financial_code(tmp_path):
     )
 
     assert aligned.loc["600000.XSHG", "roe"] == 0.1
+
+
+def test_factor_store_returns_financial_tables_filtered_by_publication_date(tmp_path):
+    store = FactorStore(tmp_path)
+    store.write_financial(
+        "600000.XSHG",
+        "profit",
+        pd.DataFrame(
+            {
+                "pubDate": ["2026-03-31", "2026-04-30"],
+                "roe": [0.10, 0.20],
+            }
+        ),
+    )
+    store.write_financial(
+        "600000.XSHG",
+        "balance",
+        pd.DataFrame(
+            {
+                "pubDate": ["2026-03-31"],
+                "debt_to_asset": [0.55],
+            }
+        ),
+    )
+
+    result = store.get_financial_tables(
+        ["600000.XSHG"], "2026-04-01", tables=("profit", "balance")
+    )
+
+    assert result["600000.XSHG"]["profit"]["roe"].tolist() == [0.10]
+    assert result["600000.XSHG"]["balance"]["debt_to_asset"].tolist() == [0.55]
+
+
+def test_factor_store_filters_financial_rows_by_stat_date_when_pub_date_missing(tmp_path):
+    store = FactorStore(tmp_path)
+    store.write_financial(
+        "600000.XSHG",
+        "growth",
+        pd.DataFrame(
+            {
+                "statDate": ["2026-03-31", "2026-06-30"],
+                "net_profit_growth_yoy": [0.08, 0.20],
+            }
+        ),
+    )
+
+    result = store.get_financial_tables(
+        ["600000.XSHG"], "2026-04-01", tables=("growth",)
+    )
+
+    assert result["600000.XSHG"]["growth"]["net_profit_growth_yoy"].tolist() == [0.08]
+
+
+def test_factor_store_prepare_financials_uses_client_for_missing_cache_only(tmp_path):
+    class FinancialClient:
+        def __init__(self):
+            self.calls = []
+
+        def query_financial_table(self, order_book_id, table, year, quarter):
+            self.calls.append((order_book_id, table, year, quarter))
+            return pd.DataFrame(
+                {
+                    "pubDate": [f"{year}-{quarter * 3:02d}-28"],
+                    "roe": [0.1],
+                }
+            )
+
+    client = FinancialClient()
+    store = FactorStore(tmp_path, client=client)
+
+    store.prepare_financials(
+        ["600000.XSHG"], "2026-01-01", "2026-06-30", tables=("profit",)
+    )
+    store.prepare_financials(
+        ["600000.XSHG"], "2026-01-01", "2026-06-30", tables=("profit",)
+    )
+
+    assert client.calls == [
+        ("600000.XSHG", "profit", 2025, 1),
+        ("600000.XSHG", "profit", 2025, 2),
+        ("600000.XSHG", "profit", 2025, 3),
+        ("600000.XSHG", "profit", 2025, 4),
+        ("600000.XSHG", "profit", 2026, 1),
+        ("600000.XSHG", "profit", 2026, 2),
+    ]

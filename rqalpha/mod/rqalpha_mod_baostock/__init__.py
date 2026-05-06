@@ -8,6 +8,10 @@ __config__ = {
     "adjustflag": "2",
     "start_date": "2010-01-01",
     "end_date": None,
+    "prefetch": False,
+    "symbols": [],
+    "runtime_fetch": True,
+    "financial_tables": ["profit", "balance", "growth"],
 }
 
 

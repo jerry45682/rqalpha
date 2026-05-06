@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from rqalpha_factor_framework.config import load_config
 
@@ -127,6 +128,28 @@ def test_rebalance_orders_targets_and_sells_positions_outside_targets(monkeypatc
     )
 
     context = SimpleNamespace(
+        financial_data={
+            stock: {
+                "profit": pd.DataFrame(
+                    {
+                        "roe": [0.10],
+                        "roa": [0.05],
+                        "gross_margin": [0.30],
+                    }
+                ),
+                "balance": pd.DataFrame(
+                    {"debt_to_asset": [0.50]}
+                ),
+                "growth": pd.DataFrame(
+                    {
+                        "revenue_growth_yoy": [0.10],
+                        "net_profit_growth_yoy": [0.08],
+                        "operating_cashflow_growth_yoy": [0.05],
+                    }
+                ),
+            }
+            for stock in stocks
+        },
         factor_config={
             "stock_pool": {"index": "000300.XSHG", "symbols": stocks},
             "portfolio": {
@@ -245,15 +268,21 @@ def test_rebalance_tolerates_empty_financial_data(monkeypatch):
                 "weighting": "equal",
             },
             "factors": {
+                "enabled_categories": [
+                    "valuation",
+                    "momentum",
+                    "reversal",
+                    "risk",
+                    "liquidity",
+                    "technical",
+                ],
                 "category_weights": {
-                    "valuation": 0.15,
-                    "quality": 0.20,
-                    "growth": 0.20,
-                    "momentum": 0.15,
-                    "reversal": 0.05,
-                    "risk": 0.10,
-                    "liquidity": 0.05,
-                    "technical": 0.10,
+                    "valuation": 0.25,
+                    "momentum": 0.25,
+                    "reversal": 0.10,
+                    "risk": 0.15,
+                    "liquidity": 0.10,
+                    "technical": 0.15,
                 },
                 "factor_weights": {},
             },
@@ -277,6 +306,147 @@ def test_rebalance_tolerates_empty_financial_data(monkeypatch):
     multi_factor_strategy.rebalance(context, bar_dict={})
 
     assert any(weight > 0 for _, weight in orders)
+
+
+def test_rebalance_raises_when_enabled_financial_factors_have_no_data(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    dates = pd.date_range("2023-01-01", periods=131, freq="D")
+    stocks = ["000001.XSHE", "000002.XSHE"]
+
+    def make_history(order_book_id):
+        rank = stocks.index(order_book_id)
+        close = np.linspace(10 + rank, 12 + rank, len(dates))
+        frame = pd.DataFrame(
+            {
+                "datetime": dates,
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": 1000000,
+                "amount": 100000000,
+                "turn": 1.0,
+                "tradestatus": 1,
+                "peTTM": 10 + rank,
+                "pbMRQ": 1 + rank,
+                "isST": 0,
+            }
+        )
+        return frame.to_records(index=False)
+
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "history_bars",
+        lambda order_book_id, bar_count, frequency, fields, skip_suspended=True, include_now=True, adjust_type="pre": make_history(
+            order_book_id
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(multi_factor_strategy, "get_positions", lambda: [], raising=False)
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "order_target_percent",
+        lambda order_book_id, weight: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "logger",
+        SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            warning=lambda *args, **kwargs: None,
+        ),
+    )
+
+    context = SimpleNamespace(
+        financial_data={},
+        factor_config={
+            "stock_pool": {"index": "000300.XSHG", "symbols": stocks},
+            "portfolio": {
+                "holding_count": 1,
+                "buffer_count": 1,
+                "weighting": "equal",
+            },
+            "factors": {
+                "enabled_categories": ["quality", "growth"],
+                "category_weights": {
+                    "quality": 0.50,
+                    "growth": 0.50,
+                },
+                "factor_weights": {},
+            },
+            "scoring": {
+                "missing": "median",
+                "winsorize_quantiles": [0.01, 0.99],
+            },
+            "filters": {
+                "exclude_st": True,
+                "min_listed_days": 180,
+                "min_avg_amount_20": 1,
+                "require_positive_pe_pb": True,
+            },
+            "risk": {
+                "max_stock_weight": 1.0,
+                "market_timing": {"enabled": False},
+            },
+        },
+    )
+
+    with pytest.raises(ValueError, match="financial factor data is missing"):
+        multi_factor_strategy.rebalance(context, bar_dict={})
+
+
+def test_resolve_financial_data_reads_factor_store_cache(tmp_path):
+    from rqalpha_factor_framework.data.factor_store import FactorStore
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    store = FactorStore(tmp_path)
+    store.write_financial(
+        "600000.XSHG",
+        "profit",
+        pd.DataFrame(
+            {
+                "pubDate": ["2026-03-30", "2026-04-30"],
+                "roe": [0.10, 0.20],
+                "gross_margin": [0.30, 0.40],
+            }
+        ),
+    )
+    store.write_financial(
+        "600000.XSHG",
+        "growth",
+        pd.DataFrame(
+            {
+                "pubDate": ["2026-03-30"],
+                "net_profit_growth_yoy": [0.08],
+            }
+        ),
+    )
+
+    context = SimpleNamespace(
+        now=pd.Timestamp("2026-04-01"),
+        factor_config={
+            "data": {
+                "cache_dir": str(tmp_path),
+                "runtime_fetch": False,
+            }
+        },
+    )
+
+    result = multi_factor_strategy._resolve_financial_data(
+        context, ["600000.XSHG"]
+    )
+
+    assert result["600000.XSHG"]["profit"]["roe"].tolist() == [0.10]
+    assert result["600000.XSHG"]["growth"]["net_profit_growth_yoy"].tolist() == [0.08]
+
+
+def test_context_datetime_raises_when_context_and_environment_have_no_date(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    with pytest.raises(ValueError, match="trading date"):
+        multi_factor_strategy._context_datetime(SimpleNamespace())
 
 
 def test_rebalance_excludes_latest_suspended_stock(monkeypatch):
@@ -585,6 +755,22 @@ def test_build_rqalpha_config_sets_configured_data_bundle_path(tmp_path):
     config = build_rqalpha_config(config_path)
 
     assert config["base"]["data_bundle_path"] == str(bundle_path)
+
+
+def test_build_rqalpha_config_requires_explicit_symbols_for_index_prefetch(tmp_path):
+    from rqalpha_factor_framework.backtest.run_backtest import build_rqalpha_config
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "stock_pool:\n"
+        "  symbols: []\n"
+        "data:\n"
+        "  prefetch: true\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="index pool prefetch requires explicit symbols"):
+        build_rqalpha_config(config_path)
 
 
 def test_build_rqalpha_config_uses_env_bundle_path_when_config_is_null(
