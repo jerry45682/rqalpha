@@ -30,13 +30,14 @@ def test_resolve_stock_pool_prefers_configured_symbols(monkeypatch):
     config = {
         "stock_pool": {
             "index": "000300.XSHG",
-            "symbols": ["000001.XSHE", "600000.XSHG"],
+            "symbols": ["600000.XSHG", "000001.XSHE", "000002.XSHE"],
         }
     }
 
     assert multi_factor_strategy._resolve_stock_pool(config) == [
-        "000001.XSHE",
         "600000.XSHG",
+        "000001.XSHE",
+        "000002.XSHE",
     ]
 
 

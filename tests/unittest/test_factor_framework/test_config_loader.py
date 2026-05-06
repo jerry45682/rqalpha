@@ -18,7 +18,12 @@ def test_load_default_config_has_required_sections():
         "backtest",
     }
     assert config["stock_pool"]["index"] == "000300.XSHG"
-    assert config["stock_pool"]["symbols"] == []
+    assert config["stock_pool"]["symbols"]
+    assert {
+        "600000.XSHG",
+        "000001.XSHE",
+        "000002.XSHE",
+    }.issubset(config["stock_pool"]["symbols"])
     assert config["rebalance"]["frequency"] == "monthly"
     assert config["rebalance"]["tradingday"] == 1
     assert config["portfolio"]["holding_count"] == 30

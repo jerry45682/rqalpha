@@ -1,6 +1,9 @@
 stock_pool:
   index: 000300.XSHG
-  symbols: []
+  symbols:
+    - 600000.XSHG
+    - 000001.XSHE
+    - 000002.XSHE
 
 rebalance:
   frequency: monthly
