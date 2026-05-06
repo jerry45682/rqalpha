@@ -147,6 +147,7 @@ Mod名                       说明
     intro/run_algorithm
     intro/under_ide
     intro/optimizing_parameters
+    intro/rqalpha_factor_framework
 
 
 .. toctree::
