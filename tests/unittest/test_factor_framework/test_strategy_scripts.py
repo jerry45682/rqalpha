@@ -336,6 +336,16 @@ def test_build_rqalpha_config_sets_factor_config_path():
     assert config["extra"]["context_vars"]["factor_config_path"]
 
 
+def test_build_rqalpha_config_sets_data_bundle_path():
+    from rqalpha_factor_framework.backtest.run_backtest import build_rqalpha_config
+
+    expected_path = r"E:\CodexWorkspace\rqalpha\bundle\bundle"
+
+    config = build_rqalpha_config()
+
+    assert config["base"]["data_bundle_path"] == expected_path
+
+
 def test_run_backtest_main_calls_rqalpha_run_with_strategy_contract():
     from rqalpha_factor_framework.backtest import run_backtest
 
@@ -349,6 +359,7 @@ def test_run_backtest_main_calls_rqalpha_run_with_strategy_contract():
     assert config["base"]["end_date"] == "2023-04-28"
     assert config["base"]["frequency"] == "1d"
     assert config["base"]["accounts"] == {"stock": 1000000}
+    assert config["base"]["data_bundle_path"] == r"E:\CodexWorkspace\rqalpha\bundle\bundle"
     assert config["extra"]["context_vars"]["factor_config_path"]
     assert config["mod"]["baostock"]["lib"] == "rqalpha.mod.rqalpha_mod_baostock"
     assert "source_code" in run.call_args.kwargs

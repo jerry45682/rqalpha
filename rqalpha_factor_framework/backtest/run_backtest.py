@@ -33,14 +33,19 @@ def build_rqalpha_config(config_path=None):
     result_path = _resolve_path(backtest_config.get("result_path"), DEFAULT_RESULT_PATH)
     result_path.parent.mkdir(parents=True, exist_ok=True)
 
+    base_config = {
+        "start_date": backtest_config["start_date"],
+        "end_date": backtest_config["end_date"],
+        "frequency": backtest_config["frequency"],
+        "strategy_file": str(STRATEGY_PATH),
+        "accounts": {"stock": backtest_config["initial_cash"]},
+    }
+    data_bundle_path = backtest_config.get("data_bundle_path")
+    if data_bundle_path:
+        base_config["data_bundle_path"] = str(_resolve_path(data_bundle_path, None))
+
     return {
-        "base": {
-            "start_date": backtest_config["start_date"],
-            "end_date": backtest_config["end_date"],
-            "frequency": backtest_config["frequency"],
-            "strategy_file": str(STRATEGY_PATH),
-            "accounts": {"stock": backtest_config["initial_cash"]},
-        },
+        "base": base_config,
         "extra": {
             "log_level": "info",
             "context_vars": {

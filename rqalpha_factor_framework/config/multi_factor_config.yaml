@@ -71,4 +71,5 @@ backtest:
   frequency: 1d
   benchmark: 000300.XSHG
   initial_cash: 1000000
+  data_bundle_path: 'E:\CodexWorkspace\rqalpha\bundle\bundle'
   result_path: rqalpha_factor_framework/backtest/multi_factor_result.pkl
