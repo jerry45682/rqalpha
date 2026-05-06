@@ -1,0 +1,74 @@
+stock_pool:
+  index: 000300.XSHG
+  symbols:
+    - 600000.XSHG
+    - 000001.XSHE
+    - 000002.XSHE
+
+rebalance:
+  frequency: monthly
+  tradingday: 1
+
+portfolio:
+  holding_count: 30
+  buffer_count: 60
+  weighting: equal
+
+factors:
+  enabled_categories:
+    - valuation
+    - momentum
+    - reversal
+    - risk
+    - liquidity
+    - technical
+  category_weights:
+    valuation: 0.25
+    momentum: 0.25
+    reversal: 0.10
+    risk: 0.15
+    liquidity: 0.10
+    technical: 0.15
+  factor_weights: {}
+
+scoring:
+  missing: median
+  winsorize_quantiles:
+    - 0.01
+    - 0.99
+  standardize: zscore
+  neutralize: none
+
+filters:
+  exclude_st: true
+  exclude_suspended: true
+  min_listed_days: 180
+  min_avg_amount_20: 30000000
+  require_positive_pe_pb: true
+  skip_limit_up_buy: true
+  skip_limit_down_sell: true
+
+risk:
+  max_stock_weight: 0.05
+  max_industry_weight: 0.25
+  market_timing:
+    enabled: true
+    index: 000300.XSHG
+    ma120_exposure: 0.50
+    ma250_exposure: 0.30
+    full_exposure: 1.00
+
+data:
+  cache_dir: .rqalpha_factor_cache
+  adjustflag: "2"
+  start_date: "2022-01-01"
+  end_date:
+
+backtest:
+  start_date: "2023-01-03"
+  end_date: "2023-04-28"
+  frequency: 1d
+  benchmark: 000300.XSHG
+  initial_cash: 1000000
+  data_bundle_path:
+  result_path: rqalpha_factor_framework/backtest/multi_factor_result.pkl

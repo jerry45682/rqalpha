@@ -65,9 +65,10 @@ build-backend = "setuptools.build_meta"
 zip-safe = false
 
 [tool.setuptools.packages.find]
-include = ["rqalpha", "rqalpha.*"]
+include = ["rqalpha", "rqalpha.*", "rqalpha_factor_framework", "rqalpha_factor_framework.*"]
 
 [tool.setuptools.package-data]
+"rqalpha_factor_framework" = ["config/*.yaml"]
 "rqalpha" = [
     '*.yml',
     'examples/*.*',
