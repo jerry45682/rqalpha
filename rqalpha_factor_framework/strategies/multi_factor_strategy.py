@@ -326,6 +326,13 @@ def _build_targets(scored, current_positions, config):
     return targets
 
 
+def _score_value(score_row, column):
+    value = score_row.get(column, 0.0)
+    if pd.isna(value):
+        return 0.0
+    return float(value)
+
+
 def rebalance(context, bar_dict):
     config = context.factor_config
     stock_pool = _resolve_stock_pool(config)
@@ -366,9 +373,18 @@ def rebalance(context, bar_dict):
 
     logger.info("target stocks: {}".format(list(targets)))
     for order_book_id in targets:
+        score_row = scored.loc[order_book_id]
         logger.info(
-            "target factor score: {} {:.6f}".format(
-                order_book_id, float(scored.loc[order_book_id, "score"])
+            (
+                "target factor score: {} total={:.6f} valuation={:.6f} "
+                "quality={:.6f} growth={:.6f} momentum={:.6f}"
+            ).format(
+                order_book_id,
+                _score_value(score_row, "score"),
+                _score_value(score_row, "valuation_score"),
+                _score_value(score_row, "quality_score"),
+                _score_value(score_row, "growth_score"),
+                _score_value(score_row, "momentum_score"),
             )
         )
     _order_to_targets(targets)

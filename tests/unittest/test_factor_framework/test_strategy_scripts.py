@@ -90,6 +90,7 @@ def test_rebalance_orders_targets_and_sells_positions_outside_targets(monkeypatc
         return frame.to_records(index=False)
 
     orders = []
+    info_messages = []
     monkeypatch.setattr(
         multi_factor_strategy,
         "history_bars",
@@ -119,7 +120,7 @@ def test_rebalance_orders_targets_and_sells_positions_outside_targets(monkeypatc
         multi_factor_strategy,
         "logger",
         SimpleNamespace(
-            info=lambda *args, **kwargs: None,
+            info=lambda message, *args, **kwargs: info_messages.append(str(message)),
             warning=lambda *args, **kwargs: None,
         ),
     )
@@ -169,6 +170,16 @@ def test_rebalance_orders_targets_and_sells_positions_outside_targets(monkeypatc
     assert sells == {"000003.XSHE": 0, "000004.XSHE": 0}
     assert len(buys) == 1
     assert next(iter(buys.values())) == 1.0
+    score_logs = [
+        message
+        for message in info_messages
+        if message.startswith("target factor score:")
+    ]
+    assert score_logs
+    assert "valuation=" in score_logs[0]
+    assert "quality=" in score_logs[0]
+    assert "growth=" in score_logs[0]
+    assert "momentum=" in score_logs[0]
 
 
 def test_rebalance_tolerates_empty_financial_data(monkeypatch):
