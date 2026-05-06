@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -25,6 +26,23 @@ def _resolve_path(path, default):
     return PROJECT_ROOT / path
 
 
+def _resolve_data_bundle_path(backtest_config):
+    configured = backtest_config.get("data_bundle_path")
+    if configured:
+        return _resolve_path(configured, None)
+
+    for env_name in ("RQALPHA_FACTOR_BUNDLE_PATH", "RQALPHA_DATA_BUNDLE_PATH"):
+        env_path = os.environ.get(env_name)
+        if env_path:
+            return _resolve_path(env_path, None)
+
+    for candidate in (PROJECT_ROOT / "bundle" / "bundle", PROJECT_ROOT / "bundle"):
+        if candidate.exists():
+            return candidate
+
+    return None
+
+
 def build_rqalpha_config(config_path=None):
     factor_config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
     factor_config = load_config(factor_config_path)
@@ -40,9 +58,9 @@ def build_rqalpha_config(config_path=None):
         "strategy_file": str(STRATEGY_PATH),
         "accounts": {"stock": backtest_config["initial_cash"]},
     }
-    data_bundle_path = backtest_config.get("data_bundle_path")
+    data_bundle_path = _resolve_data_bundle_path(backtest_config)
     if data_bundle_path:
-        base_config["data_bundle_path"] = str(_resolve_path(data_bundle_path, None))
+        base_config["data_bundle_path"] = str(data_bundle_path)
 
     return {
         "base": base_config,

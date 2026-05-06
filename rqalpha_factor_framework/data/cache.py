@@ -19,7 +19,9 @@ class CsvCache:
         directory = root / safe_namespace
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{safe_key}.csv"
-        if not path.resolve().is_relative_to(root):
+        try:
+            path.resolve().relative_to(root)
+        except ValueError:
             raise ValueError("cache path escaped root")
         return path
 

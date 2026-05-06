@@ -214,7 +214,11 @@ def _latest_filter_fields(daily_data):
     rows = {}
     for order_book_id, frame in daily_data.items():
         if frame.empty:
-            rows[order_book_id] = {"is_st": 0, "listed_days": 9999}
+            rows[order_book_id] = {
+                "is_st": 0,
+                "listed_days": 9999,
+                "tradestatus": 1,
+            }
             continue
 
         data = frame.sort_values("date") if "date" in frame.columns else frame
@@ -222,6 +226,7 @@ def _latest_filter_fields(daily_data):
         rows[order_book_id] = {
             "is_st": latest.get("is_st", latest.get("isST", 0)),
             "listed_days": latest.get("listed_days", 9999),
+            "tradestatus": latest.get("tradestatus", 1),
         }
     return pd.DataFrame.from_dict(rows, orient="index")
 
@@ -230,8 +235,13 @@ def _apply_filters(raw_factors, daily_data, config):
     filtered = raw_factors.join(_latest_filter_fields(daily_data), how="left")
     filtered["is_st"] = filtered["is_st"].fillna(0)
     filtered["listed_days"] = filtered["listed_days"].fillna(9999)
+    filtered["tradestatus"] = filtered["tradestatus"].fillna(1)
 
     filters_config = config.get("filters", {})
+    if filters_config.get("exclude_suspended", False):
+        tradestatus = pd.to_numeric(filtered["tradestatus"], errors="coerce").fillna(1)
+        filtered = filtered[tradestatus == 1]
+
     filtered = filter_stocks(
         filtered,
         min_listed_days=filters_config.get("min_listed_days", 180),
@@ -333,6 +343,56 @@ def _score_value(score_row, column):
     return float(value)
 
 
+def _enabled_factor_columns(frame, config):
+    enabled_categories = config.get("factors", {}).get("enabled_categories")
+    if enabled_categories is None:
+        enabled_categories = {meta.category for meta in FACTOR_METADATA.values()}
+    else:
+        enabled_categories = set(enabled_categories)
+
+    return [
+        column
+        for column in frame.columns
+        if column in FACTOR_METADATA
+        and FACTOR_METADATA[column].category in enabled_categories
+    ]
+
+
+def _ordered_enabled_categories(config):
+    ordered_categories = []
+    for meta in FACTOR_METADATA.values():
+        if meta.category not in ordered_categories:
+            ordered_categories.append(meta.category)
+
+    enabled_categories = config.get("factors", {}).get("enabled_categories")
+    if enabled_categories is None:
+        return ordered_categories
+
+    enabled_categories = set(enabled_categories)
+    return [
+        category for category in ordered_categories if category in enabled_categories
+    ]
+
+
+def _score_log_message(order_book_id, score_row, config):
+    parts = [
+        "target factor score: {} total={:.6f}".format(
+            order_book_id,
+            _score_value(score_row, "score"),
+        )
+    ]
+    for category in _ordered_enabled_categories(config):
+        score_column = f"{category}_score"
+        if score_column in score_row.index:
+            parts.append(
+                "{}={:.6f}".format(
+                    category,
+                    _score_value(score_row, score_column),
+                )
+            )
+    return " ".join(parts)
+
+
 def rebalance(context, bar_dict):
     config = context.factor_config
     stock_pool = _resolve_stock_pool(config)
@@ -352,9 +412,7 @@ def rebalance(context, bar_dict):
         _order_to_targets({})
         return
 
-    factor_columns = [
-        column for column in filtered_factors.columns if column in FACTOR_METADATA
-    ]
+    factor_columns = _enabled_factor_columns(filtered_factors, config)
     processed = preprocess_factors(
         filtered_factors[factor_columns],
         FACTOR_METADATA,
@@ -374,19 +432,7 @@ def rebalance(context, bar_dict):
     logger.info("target stocks: {}".format(list(targets)))
     for order_book_id in targets:
         score_row = scored.loc[order_book_id]
-        logger.info(
-            (
-                "target factor score: {} total={:.6f} valuation={:.6f} "
-                "quality={:.6f} growth={:.6f} momentum={:.6f}"
-            ).format(
-                order_book_id,
-                _score_value(score_row, "score"),
-                _score_value(score_row, "valuation_score"),
-                _score_value(score_row, "quality_score"),
-                _score_value(score_row, "growth_score"),
-                _score_value(score_row, "momentum_score"),
-            )
-        )
+        logger.info(_score_log_message(order_book_id, score_row, config))
     _order_to_targets(targets)
 
 

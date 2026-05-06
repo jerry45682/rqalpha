@@ -1,3 +1,5 @@
+import inspect
+
 import pandas as pd
 import pytest
 
@@ -18,6 +20,10 @@ class DummyClient:
                 "close": [len(self.calls)],
             }
         )
+
+
+def _assert_relative_to(path, root):
+    path.resolve().relative_to(root.resolve())
 
 
 def test_csv_cache_load_or_fetch_writes_and_reuses_data(tmp_path):
@@ -42,12 +48,22 @@ def test_csv_cache_path_for_sanitizes_names_without_escaping_root(tmp_path):
     windows_path = cache.path_for("daily:raw", r"C:\temp\evil")
     parent_escape = cache.path_for("daily", r"..\evil")
 
-    assert windows_path.resolve().is_relative_to(tmp_path.resolve())
+    _assert_relative_to(windows_path, tmp_path)
     assert windows_path.parent == tmp_path / "daily_raw"
     assert windows_path.name == "C__temp_evil.csv"
-    assert parent_escape.resolve().is_relative_to(tmp_path.resolve())
+    _assert_relative_to(parent_escape, tmp_path)
     assert parent_escape.parent == tmp_path / "daily"
     assert parent_escape.name == "___evil.csv"
+
+
+def test_csv_cache_path_for_does_not_require_path_is_relative_to(tmp_path):
+    cache = CsvCache(tmp_path)
+
+    path = cache.path_for("daily", "600000.XSHG")
+
+    assert "is_relative_to" not in inspect.getsource(CsvCache.path_for)
+    _assert_relative_to(path, tmp_path)
+    assert path.name == "600000_XSHG.csv"
 
 
 def test_csv_cache_load_or_fetch_reads_back_first_fetch(tmp_path):
