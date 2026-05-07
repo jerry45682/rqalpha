@@ -17,6 +17,7 @@ bundle/
 bundle
 persist/
 .rqalpha_baostock_cache/
+.rqalpha_factor_cache/
 multi_factor_result.pkl
 rqalpha/examples/multi_factor_strategy/multi_factor_result.pkl
 rqalpha/examples/multi_factor_strategy/multi_factor_result/
