@@ -50,6 +50,15 @@ def _require_int(value, path):
     return converted
 
 
+def _require_ratio(value, path):
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{path} must be numeric between 0 and 1")
+    converted = float(value)
+    if converted < 0 or converted > 1:
+        raise ValueError(f"{path} must be between 0 and 1")
+    return converted
+
+
 def _validate_config(config):
     config = _require_mapping(config, "config root")
     factors = _require_mapping(config.get("factors"), "factors")
@@ -78,6 +87,12 @@ def _validate_config(config):
             "portfolio.buffer_count must be greater than or equal to "
             "portfolio.holding_count"
         )
+
+    scoring = _require_mapping(config.get("scoring"), "scoring")
+    _require_ratio(
+        scoring.get("min_factor_coverage"),
+        "scoring.min_factor_coverage",
+    )
 
 
 def load_config(path=None):

@@ -54,23 +54,41 @@ class BaostockCache(object):
         frame = _normalize_daily_frame(data)
         frame.to_csv(path, index=False, encoding="utf-8")
 
-    def load_daily_range(self, order_book_id, start_date, end_date, adjustflag, fetcher):
+    def load_daily_range(
+        self,
+        order_book_id,
+        start_date,
+        end_date,
+        adjustflag,
+        fetcher,
+        required_columns=None,
+        trading_dates=None,
+    ):
         cached = self.read_daily(order_book_id, adjustflag)
-        if _covers_date_range(cached, start_date, end_date):
+        if _covers_date_range(
+            cached, start_date, end_date, trading_dates
+        ) and _has_required_columns(cached, required_columns):
             return _slice_daily_range(cached, start_date, end_date)
 
         legacy = self.read(order_book_id, start_date, end_date, adjustflag)
-        if _covers_date_range(legacy, start_date, end_date):
+        if _covers_date_range(
+            legacy, start_date, end_date, trading_dates
+        ) and _has_required_columns(legacy, required_columns):
             if cached is None or cached.empty:
                 self.write_daily(order_book_id, adjustflag, legacy)
             return _slice_daily_range(legacy, start_date, end_date)
 
         if fetcher is None:
-            if cached is None:
+            if cached is None or not _has_required_columns(cached, required_columns):
                 return None
             return _slice_daily_range(cached, start_date, end_date)
 
-        missing_ranges = _missing_daily_ranges(cached, start_date, end_date)
+        if _has_required_columns(cached, required_columns):
+            missing_ranges = _missing_daily_ranges(
+                cached, start_date, end_date, trading_dates
+            )
+        else:
+            missing_ranges = [(start_date, end_date)]
         pieces = [cached] if cached is not None and not cached.empty else []
         for missing_start, missing_end in missing_ranges:
             fetched = fetcher(order_book_id, missing_start, missing_end, adjustflag)
@@ -152,22 +170,37 @@ def _daily_dates(frame):
     return pd.to_datetime(frame["date"], errors="coerce").dropna()
 
 
-def _covers_date_range(frame, start_date, end_date):
-    return not _missing_daily_ranges(frame, start_date, end_date)
+def _covers_date_range(frame, start_date, end_date, trading_dates=None):
+    return not _missing_daily_ranges(frame, start_date, end_date, trading_dates)
 
 
-def _missing_daily_ranges(frame, start_date, end_date):
+def _has_required_columns(frame, required_columns):
+    if not required_columns:
+        return True
+    if frame is None:
+        return False
+    return set(required_columns).issubset(frame.columns)
+
+
+def _missing_daily_ranges(frame, start_date, end_date, trading_dates=None):
     start = pd.Timestamp(start_date)
     end = pd.Timestamp(end_date)
+    expected = _expected_daily_dates(start, end, trading_dates)
+    if expected.empty:
+        return []
+
     dates = _daily_dates(frame)
     if dates.empty:
-        return [(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))]
+        return [(
+            expected[0].strftime("%Y-%m-%d"),
+            expected[-1].strftime("%Y-%m-%d"),
+        )]
 
     available = set(dates.dt.normalize())
     ranges = []
     missing_start = None
     last_missing = None
-    for current in pd.date_range(start, end, freq="B"):
+    for current in expected:
         if current in available:
             if missing_start is not None:
                 ranges.append((
@@ -186,6 +219,17 @@ def _missing_daily_ranges(frame, start_date, end_date):
             last_missing.strftime("%Y-%m-%d"),
         ))
     return ranges
+
+
+def _expected_daily_dates(start, end, trading_dates=None):
+    if trading_dates is None:
+        return pd.date_range(start, end, freq="B")
+
+    dates = pd.to_datetime(pd.DatetimeIndex(trading_dates), errors="coerce")
+    dates = pd.DatetimeIndex(dates.dropna()).normalize().unique().sort_values()
+    left = dates.searchsorted(start)
+    right = dates.searchsorted(end, side="right")
+    return dates[left:right]
 
 
 def _merge_daily_frames(frames):

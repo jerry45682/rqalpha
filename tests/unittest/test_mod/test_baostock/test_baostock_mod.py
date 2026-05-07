@@ -5,9 +5,14 @@ import numpy as np
 import pandas as pd
 
 from rqalpha.data.base_data_source.data_source import BaseDataSource
+from rqalpha.const import TRADING_CALENDAR_TYPE
 from rqalpha.mod.rqalpha_mod_baostock.cache import BaostockCache
 from rqalpha.mod.rqalpha_mod_baostock.code_map import baostock_to_rqalpha, rqalpha_to_baostock
-from rqalpha.mod.rqalpha_mod_baostock.data_source import BaostockDataSource, dataframe_to_bars
+from rqalpha.mod.rqalpha_mod_baostock.data_source import (
+    BaostockDataSource,
+    dataframe_to_bars,
+    normalize_financial_data,
+)
 from rqalpha.mod.rqalpha_mod_baostock.mod import BaostockMod
 
 
@@ -33,6 +38,7 @@ def test_dataframe_to_bars_maps_baostock_fields_to_rqalpha_dtype():
                 "tradestatus": "1",
                 "peTTM": "8.5",
                 "pbMRQ": "0.9",
+                "psTTM": "1.8",
                 "isST": "0",
             }
         ]
@@ -53,10 +59,12 @@ def test_dataframe_to_bars_maps_baostock_fields_to_rqalpha_dtype():
         "tradestatus",
         "peTTM",
         "pbMRQ",
+        "psTTM",
         "isST",
     )
     assert bars[0]["datetime"] == 20260105000000
     assert bars[0]["close"] == 10.5
+    assert bars[0]["psTTM"] == 1.8
     assert bars[0]["total_turnover"] == 105000
 
 
@@ -146,6 +154,43 @@ def test_daily_cache_reads_legacy_exact_range_cache_without_fetching(tmp_path):
     pd.testing.assert_frame_equal(result, legacy)
 
 
+def test_daily_cache_refetches_covered_cache_missing_required_columns(tmp_path):
+    cache = BaostockCache(tmp_path)
+    cache.write_daily(
+        "600000.XSHG",
+        "2",
+        pd.DataFrame(
+            {
+                "date": ["2026-01-01", "2026-01-02"],
+                "close": ["10.1", "10.2"],
+            }
+        ),
+    )
+    calls = []
+
+    def fetcher(order_book_id, start_date, end_date, adjustflag):
+        calls.append((order_book_id, start_date, end_date, adjustflag))
+        return pd.DataFrame(
+            {
+                "date": ["2026-01-01", "2026-01-02"],
+                "close": ["10.1", "10.2"],
+                "psTTM": ["1.5", "1.6"],
+            }
+        )
+
+    result = cache.load_daily_range(
+        "600000.XSHG",
+        "2026-01-01",
+        "2026-01-02",
+        "2",
+        fetcher,
+        required_columns=["date", "close", "psTTM"],
+    )
+
+    assert calls == [("600000.XSHG", "2026-01-01", "2026-01-02", "2")]
+    assert result["psTTM"].tolist() == ["1.5", "1.6"]
+
+
 def test_daily_cache_fetches_missing_middle_weekday_gap(tmp_path):
     cache = BaostockCache(tmp_path)
     cache.write_daily(
@@ -170,6 +215,34 @@ def test_daily_cache_fetches_missing_middle_weekday_gap(tmp_path):
 
     assert calls == [("600000.XSHG", "2026-01-05", "2026-01-05", "2")]
     assert result["date"].tolist() == ["2026-01-02", "2026-01-05", "2026-01-06"]
+
+
+def test_daily_cache_does_not_refetch_known_market_holiday(tmp_path):
+    cache = BaostockCache(tmp_path)
+    cache.write_daily(
+        "600000.XSHG",
+        "2",
+        pd.DataFrame(
+            {
+                "date": ["2026-01-02", "2026-01-06"],
+                "close": ["10.2", "10.4"],
+            }
+        ),
+    )
+
+    def fetcher(*args):
+        raise AssertionError("known market holidays should not be refetched")
+
+    result = cache.load_daily_range(
+        "600000.XSHG",
+        "2026-01-02",
+        "2026-01-06",
+        "2",
+        fetcher,
+        trading_dates=pd.DatetimeIndex(["2026-01-02", "2026-01-06"]),
+    )
+
+    assert result["date"].tolist() == ["2026-01-02", "2026-01-06"]
 
 
 def test_daily_cache_returns_none_when_runtime_fetch_is_disabled_and_cache_missing(tmp_path):
@@ -215,6 +288,25 @@ def test_financial_cache_updates_only_missing_quarters(tmp_path):
     ]
 
 
+def test_normalize_dupont_financial_data_derives_roa():
+    frame = pd.DataFrame(
+        [
+            {
+                "code": "sh.600000",
+                "pubDate": "2026-04-30",
+                "statDate": "2026-03-31",
+                "dupontROE": "0.12",
+                "dupontAssetStoEquity": "4.0",
+            }
+        ]
+    )
+
+    result = normalize_financial_data(frame, "600000.XSHG", "dupont", 2026, 1)
+
+    assert result.loc[0, "roa"] == 0.03
+    assert result.loc[0, "asset_to_equity"] == "4.0"
+
+
 def test_baostock_data_source_inherits_base_data_source():
     assert issubclass(BaostockDataSource, BaseDataSource)
 
@@ -251,7 +343,7 @@ def test_data_source_reads_prepared_daily_cache_without_runtime_fetch(tmp_path):
         "2",
         lambda *args: pd.DataFrame(
             [
-                {"date": "2026-01-05", "open": "10", "high": "11", "low": "9", "close": "10.5", "volume": "100", "amount": "1050", "turn": "1", "tradestatus": "1", "peTTM": "8", "pbMRQ": "1", "isST": "0"},
+                {"date": "2026-01-05", "code": "sh.600000", "open": "10", "high": "11", "low": "9", "close": "10.5", "volume": "100", "amount": "1050", "turn": "1", "tradestatus": "1", "peTTM": "8", "pbMRQ": "1", "psTTM": "2", "isST": "0"},
             ]
         ),
     )
@@ -268,6 +360,73 @@ def test_data_source_reads_prepared_daily_cache_without_runtime_fetch(tmp_path):
     bar = source.get_bar(SimpleNamespace(order_book_id="600000.XSHG"), date(2026, 1, 5), "1d")
 
     assert bar["close"] == 10.5
+
+
+def test_data_source_refetches_prepared_daily_cache_missing_required_fields(tmp_path):
+    cache = BaostockCache(tmp_path)
+    cache.load_daily_range(
+        "600000.XSHG",
+        "2026-01-01",
+        "2026-01-31",
+        "2",
+        lambda *args: pd.DataFrame(
+            [
+                {"date": "2026-01-05", "code": "sh.600000", "open": "10", "high": "11", "low": "9", "close": "10.5", "volume": "100", "amount": "1050", "turn": "1", "tradestatus": "1", "peTTM": "8", "pbMRQ": "1", "isST": "0"},
+            ]
+        ),
+    )
+    source = BaostockDataSource.__new__(BaostockDataSource)
+    source._adjustflag = "2"
+    source._start_date = "2026-01-01"
+    source._end_date = "2026-01-31"
+    source._cache = BaostockCache(tmp_path)
+    source._runtime_fetch = True
+    calls = []
+
+    def fetcher(*args):
+        calls.append(args)
+        return pd.DataFrame(
+            [
+                {"date": "2026-01-05", "code": "sh.600000", "open": "10", "high": "11", "low": "9", "close": "10.5", "volume": "100", "amount": "1050", "turn": "1", "tradestatus": "1", "peTTM": "8", "pbMRQ": "1", "psTTM": "2", "isST": "0"},
+            ]
+        )
+
+    source._fetch_baostock = fetcher
+
+    history = source.history_bars(
+        SimpleNamespace(order_book_id="600000.XSHG"),
+        1,
+        "1d",
+        ["close", "psTTM"],
+        date(2026, 1, 5),
+    )
+
+    assert calls == [("600000.XSHG", "2026-01-01", "2026-01-31", "2")]
+    assert history.tolist() == [(10.5, 2.0)]
+
+
+def test_data_source_prepare_data_passes_cn_stock_trading_calendar():
+    source = BaostockDataSource.__new__(BaostockDataSource)
+    source._adjustflag = "2"
+    source._start_date = "2026-01-01"
+    source._end_date = "2026-01-31"
+    source._financial_tables = ()
+    source._fetch_baostock = lambda *args: pd.DataFrame()
+    captured = {}
+
+    class FakeCache:
+        def load_daily_range(self, *args, **kwargs):
+            captured["trading_dates"] = kwargs.get("trading_dates")
+            return pd.DataFrame()
+
+    source._cache = FakeCache()
+    source.get_trading_calendars = lambda: {
+        TRADING_CALENDAR_TYPE.CN_STOCK: pd.DatetimeIndex(["2026-01-05"])
+    }
+
+    source.prepare_data(["600000.XSHG"])
+
+    assert list(captured["trading_dates"]) == [pd.Timestamp("2026-01-05")]
 
 
 def test_baostock_mod_prefetches_configured_symbols(monkeypatch, tmp_path):

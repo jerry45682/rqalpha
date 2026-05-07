@@ -130,6 +130,115 @@ def test_financial_factor_modules_return_expected_columns():
     assert growth.loc["600000.XSHG", "net_profit_growth_yoy"] == 0.08
 
 
+def test_quality_factors_derive_roa_from_dupont_when_profit_roa_missing():
+    financial = {
+        "600000.XSHG": {
+            "profit": pd.DataFrame([{"roe": 0.12}]),
+            "balance": pd.DataFrame([{"debt_to_asset": 0.55}]),
+            "dupont": pd.DataFrame(
+                [
+                    {
+                        "pubDate": "2024-04-30",
+                        "dupontROE": 0.12,
+                        "dupontAssetStoEquity": 4.0,
+                    }
+                ]
+            ),
+        }
+    }
+
+    quality = calculate_quality_factors(financial)
+
+    assert quality.loc["600000.XSHG", "roa"] == 0.03
+
+
+def test_growth_factors_derive_revenue_and_cashflow_yoy_from_baostock_tables():
+    financial = {
+        "600000.XSHG": {
+            "growth": pd.DataFrame(
+                [
+                    {
+                        "year": 2023,
+                        "quarter": 1,
+                        "net_profit_growth_yoy": 0.08,
+                    }
+                ]
+            ),
+            "profit": pd.DataFrame(
+                [
+                    {"year": 2022, "quarter": 1, "MBRevenue": 100.0},
+                    {"year": 2023, "quarter": 1, "MBRevenue": 120.0},
+                ]
+            ),
+            "cash_flow": pd.DataFrame(
+                [
+                    {"year": 2022, "quarter": 1, "CFOToOR": 0.5},
+                    {"year": 2023, "quarter": 1, "CFOToOR": 0.75},
+                ]
+            ),
+        }
+    }
+
+    growth = calculate_growth_factors(financial)
+
+    assert np.isclose(growth.loc["600000.XSHG", "revenue_growth_yoy"], 0.2)
+    assert np.isclose(
+        growth.loc["600000.XSHG", "operating_cashflow_growth_yoy"],
+        0.8,
+    )
+
+
+def test_growth_factors_derive_same_quarter_yoy_from_latest_duplicate_reports():
+    financial = {
+        "600000.XSHG": {
+            "growth": pd.DataFrame([{"net_profit_growth_yoy": 0.08}]),
+            "profit": pd.DataFrame(
+                [
+                    {
+                        "year": 2023,
+                        "quarter": 1,
+                        "pubDate": "2024-04-30",
+                        "statDate": "2023-03-31",
+                        "MBRevenue": 132.0,
+                    },
+                    {
+                        "year": 2022,
+                        "quarter": 1,
+                        "pubDate": "2023-04-30",
+                        "statDate": "2022-03-31",
+                        "MBRevenue": 110.0,
+                    },
+                    {
+                        "year": 2023,
+                        "quarter": 1,
+                        "pubDate": "2024-04-20",
+                        "statDate": "2023-03-31",
+                        "MBRevenue": 121.0,
+                    },
+                    {
+                        "year": 2022,
+                        "quarter": 1,
+                        "pubDate": "2023-04-20",
+                        "statDate": "2022-03-31",
+                        "MBRevenue": 100.0,
+                    },
+                    {
+                        "year": 2022,
+                        "quarter": 4,
+                        "pubDate": "2023-03-30",
+                        "statDate": "2022-12-31",
+                        "MBRevenue": 999.0,
+                    },
+                ]
+            ),
+        }
+    }
+
+    growth = calculate_growth_factors(financial)
+
+    assert np.isclose(growth.loc["600000.XSHG", "revenue_growth_yoy"], 0.2)
+
+
 def test_financial_factors_convert_strings_and_empty_values_to_numeric():
     financial = {
         "600000.XSHG": {

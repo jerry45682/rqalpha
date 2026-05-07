@@ -51,6 +51,7 @@ def test_load_default_config_has_required_sections():
     }
     assert config["factors"]["factor_weights"] == {}
     assert config["scoring"]["missing"] == "median"
+    assert config["scoring"]["min_factor_coverage"] == 0.3
     assert config["scoring"]["winsorize_quantiles"] == [0.01, 0.99]
     assert config["scoring"]["standardize"] == "zscore"
     assert config["scoring"]["neutralize"] == "none"
@@ -79,6 +80,8 @@ def test_load_default_config_has_required_sections():
         "profit",
         "balance",
         "growth",
+        "cash_flow",
+        "dupont",
     ]
     assert config["backtest"]["start_date"] == "2023-01-03"
     assert config["backtest"]["end_date"] == "2023-04-28"
@@ -202,6 +205,19 @@ def test_load_config_rejects_non_numeric_buffer_count(tmp_path):
     )
 
     with pytest.raises(ValueError, match="portfolio.buffer_count"):
+        load_config(path)
+
+
+@pytest.mark.parametrize("value", ["many", -0.1, 1.1])
+def test_load_config_rejects_invalid_min_factor_coverage(tmp_path, value):
+    path = tmp_path / "bad.yaml"
+    path.write_text(
+        "scoring:\n"
+        f"  min_factor_coverage: {value}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="scoring.min_factor_coverage"):
         load_config(path)
 
 

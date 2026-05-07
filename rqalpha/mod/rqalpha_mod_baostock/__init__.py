@@ -11,7 +11,7 @@ __config__ = {
     "prefetch": False,
     "symbols": [],
     "runtime_fetch": True,
-    "financial_tables": ["profit", "balance", "growth"],
+    "financial_tables": ["profit", "balance", "growth", "cash_flow", "dupont"],
 }
 
 

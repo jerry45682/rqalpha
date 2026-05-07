@@ -3,6 +3,7 @@ from datetime import date, datetime
 import numpy as np
 import pandas as pd
 
+from rqalpha.const import TRADING_CALENDAR_TYPE
 from rqalpha.data.base_data_source.data_source import BaseDataSource
 from rqalpha.utils.datetime_func import convert_date_to_int
 from rqalpha.utils.exception import RQInvalidArgument
@@ -24,10 +25,11 @@ BAOSTOCK_FIELDS = [
     "tradestatus",
     "peTTM",
     "pbMRQ",
+    "psTTM",
     "isST",
 ]
 
-FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow")
+FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow", "dupont")
 FINANCIAL_FIELD_ALIASES = {
     "profit": {
         "roeAvg": "roe",
@@ -51,6 +53,10 @@ FINANCIAL_FIELD_ALIASES = {
         "CFOToOR": "operating_cashflow_to_revenue",
         "CFOToNP": "operating_cashflow_to_net_profit",
     },
+    "dupont": {
+        "dupontAssetStoEquity": "asset_to_equity",
+        "dupontAssetTurn": "asset_turnover",
+    },
 }
 
 BAR_DTYPE = np.dtype([
@@ -66,6 +72,7 @@ BAR_DTYPE = np.dtype([
     ("tradestatus", "<i4"),
     ("peTTM", "<f8"),
     ("pbMRQ", "<f8"),
+    ("psTTM", "<f8"),
     ("isST", "<i4"),
 ])
 
@@ -109,6 +116,7 @@ def fetch_baostock_financial_data(order_book_id, table, year, quarter):
         "balance": "query_balance_data",
         "growth": "query_growth_data",
         "cash_flow": "query_cash_flow_data",
+        "dupont": "query_dupont_data",
     }.get(table)
     if query_name is None:
         raise ValueError("unsupported baostock financial table: {}".format(table))
@@ -139,6 +147,7 @@ def normalize_financial_data(frame, order_book_id, table, year=None, quarter=Non
     for source, target in aliases.items():
         if source in frame.columns and target not in frame.columns:
             frame[target] = frame[source]
+    frame = _derive_financial_fields(frame, table)
     if "pubDate" in frame.columns and "pub_date" not in frame.columns:
         frame["pub_date"] = frame["pubDate"]
     if "statDate" in frame.columns and "stat_date" not in frame.columns:
@@ -149,6 +158,18 @@ def normalize_financial_data(frame, order_book_id, table, year=None, quarter=Non
         frame["year"] = int(year)
     if quarter is not None and "quarter" not in frame.columns:
         frame["quarter"] = int(quarter)
+    return frame
+
+
+def _derive_financial_fields(frame, table):
+    if frame.empty or table != "dupont" or "roa" in frame.columns:
+        return frame
+    if "dupontROE" not in frame.columns or "dupontAssetStoEquity" not in frame.columns:
+        return frame
+
+    roe = pd.to_numeric(frame["dupontROE"], errors="coerce")
+    asset_to_equity = pd.to_numeric(frame["dupontAssetStoEquity"], errors="coerce")
+    frame["roa"] = roe / asset_to_equity.replace(0, pd.NA)
     return frame
 
 
@@ -183,6 +204,7 @@ def dataframe_to_bars(data):
             _to_int(row.get("tradestatus")),
             _to_float(row.get("peTTM")),
             _to_float(row.get("pbMRQ")),
+            _to_float(row.get("psTTM")),
             _to_int(row.get("isST")),
         ))
     return np.array(rows, dtype=BAR_DTYPE)
@@ -207,6 +229,12 @@ class BaostockDataSource(BaseDataSource):
     def _fetch_baostock_financial(self, order_book_id, table, year, quarter):
         return fetch_baostock_financial_data(order_book_id, table, year, quarter)
 
+    def _cn_stock_trading_dates(self):
+        try:
+            return self.get_trading_calendars()[TRADING_CALENDAR_TYPE.CN_STOCK]
+        except (AttributeError, KeyError):
+            return None
+
     def _all_baostock_day_bars(self, order_book_id):
         runtime_fetch = getattr(self, "_runtime_fetch", True)
         if hasattr(self._cache, "load_daily_range"):
@@ -216,6 +244,8 @@ class BaostockDataSource(BaseDataSource):
                 self._end_date,
                 self._adjustflag,
                 self._fetch_baostock if runtime_fetch else None,
+                required_columns=BAOSTOCK_FIELDS,
+                trading_dates=self._cn_stock_trading_dates(),
             )
         else:
             data = self._cache.load_or_fetch(
@@ -238,6 +268,8 @@ class BaostockDataSource(BaseDataSource):
                 self._end_date,
                 self._adjustflag,
                 self._fetch_baostock,
+                required_columns=BAOSTOCK_FIELDS,
+                trading_dates=self._cn_stock_trading_dates(),
             )
             year_quarters = _financial_year_quarters(self._start_date, self._end_date)
             for table in self._financial_tables:

@@ -42,10 +42,10 @@ def test_resolve_stock_pool_prefers_configured_symbols(monkeypatch):
     ]
 
 
-def test_history_fields_omit_unsupported_ps_ttm():
+def test_history_fields_include_baostock_ps_ttm():
     from rqalpha_factor_framework.strategies import multi_factor_strategy
 
-    assert "psTTM" not in multi_factor_strategy.HISTORY_FIELDS
+    assert "psTTM" in multi_factor_strategy.HISTORY_FIELDS
 
 
 def test_bars_to_frame_converts_numeric_datetime():
@@ -308,7 +308,7 @@ def test_rebalance_tolerates_empty_financial_data(monkeypatch):
     assert any(weight > 0 for _, weight in orders)
 
 
-def test_rebalance_raises_when_enabled_financial_factors_have_no_data(monkeypatch):
+def test_rebalance_clears_when_only_enabled_financial_factors_have_no_data(monkeypatch):
     from rqalpha_factor_framework.strategies import multi_factor_strategy
 
     dates = pd.date_range("2023-01-01", periods=131, freq="D")
@@ -344,10 +344,11 @@ def test_rebalance_raises_when_enabled_financial_factors_have_no_data(monkeypatc
         raising=False,
     )
     monkeypatch.setattr(multi_factor_strategy, "get_positions", lambda: [], raising=False)
+    orders = []
     monkeypatch.setattr(
         multi_factor_strategy,
         "order_target_percent",
-        lambda order_book_id, weight: None,
+        lambda order_book_id, weight: orders.append((order_book_id, weight)),
         raising=False,
     )
     monkeypatch.setattr(
@@ -378,6 +379,7 @@ def test_rebalance_raises_when_enabled_financial_factors_have_no_data(monkeypatc
             },
             "scoring": {
                 "missing": "median",
+                "min_factor_coverage": 0.5,
                 "winsorize_quantiles": [0.01, 0.99],
             },
             "filters": {
@@ -393,8 +395,242 @@ def test_rebalance_raises_when_enabled_financial_factors_have_no_data(monkeypatc
         },
     )
 
-    with pytest.raises(ValueError, match="financial factor data is missing"):
-        multi_factor_strategy.rebalance(context, bar_dict={})
+    multi_factor_strategy.rebalance(context, bar_dict={})
+
+    assert orders == []
+
+
+def test_resolve_financial_data_uses_configured_financial_tables(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    captured = {}
+
+    class FakeStore:
+        def __init__(self, cache_dir, client=None):
+            captured["cache_dir"] = cache_dir
+            captured["client"] = client
+
+        def prepare_financials(self, stock_pool, start_date, end_date, tables=None):
+            captured["prepare_tables"] = tables
+
+        def get_financial_tables(self, stock_pool, as_of_date, tables=None):
+            captured["get_tables"] = tables
+            return {
+                stock: {table: pd.DataFrame({"value": [1.0]}) for table in tables}
+                for stock in stock_pool
+            }
+
+    monkeypatch.setattr(multi_factor_strategy, "FactorStore", FakeStore)
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "BaostockClient",
+        lambda adjustflag="2": SimpleNamespace(adjustflag=adjustflag),
+    )
+
+    context = SimpleNamespace(
+        now=pd.Timestamp("2026-04-01"),
+        factor_config={
+            "data": {
+                "cache_dir": "cache",
+                "runtime_fetch_financial": True,
+                "financial_tables": ["profit"],
+            },
+        },
+    )
+
+    result = multi_factor_strategy._resolve_financial_data(
+        context, ["600000.XSHG"]
+    )
+
+    assert captured["prepare_tables"] == ["profit"]
+    assert captured["get_tables"] == ["profit"]
+    assert set(result["600000.XSHG"]) == {"profit"}
+
+
+def test_rebalance_filters_empty_financial_categories_after_coverage(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    dates = pd.date_range("2023-01-01", periods=131, freq="D")
+    stocks = ["000001.XSHE", "000002.XSHE"]
+
+    def make_history(order_book_id):
+        rank = stocks.index(order_book_id)
+        close = np.linspace(10 + rank, 12 + rank, len(dates))
+        frame = pd.DataFrame(
+            {
+                "datetime": dates,
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": 1000000,
+                "amount": 100000000,
+                "turn": 1.0,
+                "tradestatus": 1,
+                "peTTM": 10 + rank,
+                "pbMRQ": 1 + rank,
+                "psTTM": 2 + rank,
+                "isST": 0,
+            }
+        )
+        return frame.to_records(index=False)
+
+    orders = []
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "history_bars",
+        lambda order_book_id, bar_count, frequency, fields, skip_suspended=True, include_now=True, adjust_type="pre": make_history(
+            order_book_id
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(multi_factor_strategy, "get_positions", lambda: [], raising=False)
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "order_target_percent",
+        lambda order_book_id, weight: orders.append((order_book_id, weight)),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "logger",
+        SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            warning=lambda *args, **kwargs: None,
+        ),
+    )
+
+    context = SimpleNamespace(
+        financial_data={},
+        factor_config={
+            "stock_pool": {"index": "000300.XSHG", "symbols": stocks},
+            "portfolio": {
+                "holding_count": 1,
+                "buffer_count": 1,
+                "weighting": "equal",
+            },
+            "factors": {
+                "enabled_categories": ["valuation", "quality", "growth", "momentum"],
+                "category_weights": {
+                    "valuation": 0.35,
+                    "quality": 0.20,
+                    "growth": 0.20,
+                    "momentum": 0.25,
+                },
+                "factor_weights": {},
+            },
+            "scoring": {
+                "missing": "median",
+                "min_factor_coverage": 0.5,
+                "winsorize_quantiles": [0.01, 0.99],
+            },
+            "filters": {
+                "exclude_st": True,
+                "min_listed_days": 180,
+                "min_avg_amount_20": 1,
+                "require_positive_pe_pb": True,
+            },
+            "risk": {
+                "max_stock_weight": 1.0,
+                "market_timing": {"enabled": False},
+            },
+        },
+    )
+
+    multi_factor_strategy.rebalance(context, bar_dict={})
+
+    assert any(weight > 0 for _, weight in orders)
+
+
+def test_rebalance_prunes_factor_weights_for_filtered_factors(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    dates = pd.date_range("2023-01-01", periods=131, freq="D")
+    stocks = ["000001.XSHE", "000002.XSHE"]
+
+    def make_history(order_book_id):
+        rank = stocks.index(order_book_id)
+        close = np.linspace(10 + rank, 12 + rank, len(dates))
+        pb_values = [1.0 + rank] + [np.nan] * (len(dates) - 1)
+        frame = pd.DataFrame(
+            {
+                "datetime": dates,
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": 1000000,
+                "amount": 100000000,
+                "turn": 1.0,
+                "tradestatus": 1,
+                "peTTM": 10 + rank,
+                "pbMRQ": pb_values,
+                "psTTM": 2 + rank,
+                "isST": 0,
+            }
+        )
+        return frame.to_records(index=False)
+
+    orders = []
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "history_bars",
+        lambda order_book_id, bar_count, frequency, fields, skip_suspended=True, include_now=True, adjust_type="pre": make_history(
+            order_book_id
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(multi_factor_strategy, "get_positions", lambda: [], raising=False)
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "order_target_percent",
+        lambda order_book_id, weight: orders.append((order_book_id, weight)),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "logger",
+        SimpleNamespace(
+            info=lambda *args, **kwargs: None,
+            warning=lambda *args, **kwargs: None,
+        ),
+    )
+
+    context = SimpleNamespace(
+        financial_data={},
+        factor_config={
+            "stock_pool": {"index": "000300.XSHG", "symbols": stocks},
+            "portfolio": {
+                "holding_count": 1,
+                "buffer_count": 1,
+                "weighting": "equal",
+            },
+            "factors": {
+                "enabled_categories": ["valuation"],
+                "category_weights": {"valuation": 1.0},
+                "factor_weights": {"valuation": {"pb": 1.0}},
+            },
+            "scoring": {
+                "missing": "median",
+                "min_factor_coverage": 0.5,
+                "winsorize_quantiles": [0.01, 0.99],
+            },
+            "filters": {
+                "exclude_st": True,
+                "min_listed_days": 180,
+                "min_avg_amount_20": 1,
+                "require_positive_pe_pb": False,
+            },
+            "risk": {
+                "max_stock_weight": 1.0,
+                "market_timing": {"enabled": False},
+            },
+        },
+    )
+
+    multi_factor_strategy.rebalance(context, bar_dict={})
+
+    assert any(weight > 0 for _, weight in orders)
 
 
 def test_resolve_financial_data_reads_factor_store_cache(tmp_path):
@@ -680,6 +916,33 @@ def test_rebalance_uses_only_enabled_factor_categories(monkeypatch):
     assert "momentum=" in score_logs[0]
     assert "quality=" not in score_logs[0]
     assert "growth=" not in score_logs[0]
+
+
+def test_factor_columns_drop_low_coverage_enabled_factors():
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    frame = pd.DataFrame(
+        {
+            "pe_ttm": [10.0, 11.0, 12.0, 13.0],
+            "gross_margin": [0.2, np.nan, np.nan, np.nan],
+        },
+        index=["000001.XSHE", "000002.XSHE", "000003.XSHE", "000004.XSHE"],
+    )
+
+    enabled = multi_factor_strategy._enabled_factor_columns(
+        frame,
+        {
+            "factors": {
+                "enabled_categories": ["valuation", "quality"],
+            },
+        },
+    )
+
+    result = multi_factor_strategy._factor_columns_with_min_coverage(
+        frame, enabled, min_coverage=0.5
+    )
+
+    assert result == ["pe_ttm"]
 
 
 def test_build_targets_applies_market_timing_exposure_and_stock_cap(monkeypatch):

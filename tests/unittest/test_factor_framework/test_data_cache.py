@@ -255,3 +255,26 @@ def test_factor_store_prepare_financials_uses_client_for_missing_cache_only(tmp_
         ("600000.XSHG", "profit", 2026, 1),
         ("600000.XSHG", "profit", 2026, 2),
     ]
+
+
+def test_factor_store_prepare_financials_defaults_to_all_supported_tables(tmp_path):
+    class FinancialClient:
+        def __init__(self):
+            self.tables = []
+
+        def query_financial_table(self, order_book_id, table, year, quarter):
+            self.tables.append(table)
+            return pd.DataFrame(
+                {
+                    "pubDate": [f"{year}-{quarter * 3:02d}-28"],
+                    "year": [year],
+                    "quarter": [quarter],
+                }
+            )
+
+    client = FinancialClient()
+    store = FactorStore(tmp_path, client=client)
+
+    store.prepare_financials(["600000.XSHG"], "2026-01-01", "2026-01-01")
+
+    assert set(client.tables) == {"profit", "balance", "growth", "cash_flow", "dupont"}

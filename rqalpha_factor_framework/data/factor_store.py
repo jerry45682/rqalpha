@@ -5,6 +5,8 @@ import pandas as pd
 from .baostock_client import rqalpha_to_baostock
 from .cache import CsvCache
 
+FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow", "dupont")
+
 
 class FactorStore:
     def __init__(self, cache_dir, client=None):
@@ -57,14 +59,14 @@ class FactorStore:
         if self.client is None:
             raise RuntimeError("data client is required when financial cache is missing")
 
-        tables = tuple(tables or ("profit", "balance", "growth"))
+        tables = tuple(tables or FINANCIAL_TABLES)
         year_quarters = _financial_year_quarters(start_date, end_date)
         for order_book_id in order_book_ids:
             for table in tables:
                 self._update_financial_quarters(order_book_id, table, year_quarters)
 
     def get_financial_tables(self, order_book_ids, date, tables=None):
-        tables = tuple(tables or ("profit", "balance", "growth"))
+        tables = tuple(tables or FINANCIAL_TABLES)
         as_of_date = pd.Timestamp(date)
         result = {}
         for order_book_id in order_book_ids:

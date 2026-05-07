@@ -47,6 +47,11 @@ CASH_FLOW_FIELD_ALIASES = {
     "CFOToNP": "operating_cashflow_to_net_profit",
 }
 
+DUPONT_FIELD_ALIASES = {
+    "dupontAssetStoEquity": "asset_to_equity",
+    "dupontAssetTurn": "asset_turnover",
+}
+
 
 def rqalpha_to_baostock(order_book_id):
     code, exchange = order_book_id.split(".")
@@ -138,12 +143,25 @@ class BaostockClient:
             )
             return _normalize_fields(_result_to_frame(result), CASH_FLOW_FIELD_ALIASES)
 
+    def query_dupont_data(self, order_book_id, year, quarter):
+        with baostock_session() as bs:
+            result = bs.query_dupont_data(
+                code=rqalpha_to_baostock(order_book_id),
+                year=year,
+                quarter=quarter,
+            )
+            return _derive_financial_fields(
+                _normalize_fields(_result_to_frame(result), DUPONT_FIELD_ALIASES),
+                "dupont",
+            )
+
     def query_financial_table(self, order_book_id, table, year, quarter):
         query = {
             "profit": self.query_profit_data,
             "balance": self.query_balance_data,
             "growth": self.query_growth_data,
             "cash_flow": self.query_cash_flow_data,
+            "dupont": self.query_dupont_data,
         }.get(table)
         if query is None:
             raise ValueError(f"unsupported baostock financial table: {table}")
@@ -176,4 +194,16 @@ def _normalize_fields(frame, aliases):
     for source, target in aliases.items():
         if source in frame.columns and target not in frame.columns:
             frame[target] = frame[source]
+    return frame
+
+
+def _derive_financial_fields(frame, table):
+    if frame.empty or table != "dupont" or "roa" in frame.columns:
+        return frame
+    if "dupontROE" not in frame.columns or "dupontAssetStoEquity" not in frame.columns:
+        return frame
+
+    roe = pd.to_numeric(frame["dupontROE"], errors="coerce")
+    asset_to_equity = pd.to_numeric(frame["dupontAssetStoEquity"], errors="coerce")
+    frame["roa"] = roe / asset_to_equity.replace(0, pd.NA)
     return frame

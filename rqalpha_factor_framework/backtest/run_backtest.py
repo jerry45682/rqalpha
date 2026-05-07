@@ -95,7 +95,7 @@ def build_rqalpha_config(config_path=None):
                 "symbols": symbols,
                 "financial_tables": data_config.get(
                     "financial_tables",
-                    ["profit", "balance", "growth"],
+                    ["profit", "balance", "growth", "cash_flow", "dupont"],
                 ),
             },
         },

@@ -37,6 +37,7 @@ factors:
 
 scoring:
   missing: median
+  min_factor_coverage: 0.3
   winsorize_quantiles:
     - 0.01
     - 0.99
@@ -74,6 +75,8 @@ data:
     - profit
     - balance
     - growth
+    - cash_flow
+    - dupont
 
 backtest:
   start_date: "2023-01-03"

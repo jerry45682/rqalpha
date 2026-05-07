@@ -13,3 +13,5 @@ mod:
       - profit
       - balance
       - growth
+      - cash_flow
+      - dupont

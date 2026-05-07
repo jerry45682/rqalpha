@@ -42,9 +42,10 @@ HISTORY_FIELDS = [
     "tradestatus",
     "peTTM",
     "pbMRQ",
+    "psTTM",
     "isST",
 ]
-FINANCIAL_TABLES = ("profit", "balance", "growth")
+FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow", "dupont")
 
 
 def init(context):
@@ -216,16 +217,17 @@ def _environment_datetime():
 def _resolve_financial_data(context, stock_pool):
     supplied = getattr(context, "financial_data", None)
     stock_pool = list(stock_pool)
+    data_config = getattr(context, "factor_config", {}).get("data", {})
+    financial_tables = list(data_config.get("financial_tables") or FINANCIAL_TABLES)
     if isinstance(supplied, dict) and supplied:
         financial_data = {}
         for order_book_id in stock_pool:
             tables = supplied.get(order_book_id, {}) or {}
             financial_data[order_book_id] = {
-                table: tables.get(table, pd.DataFrame()) for table in FINANCIAL_TABLES
+                table: tables.get(table, pd.DataFrame()) for table in financial_tables
             }
         return financial_data
 
-    data_config = getattr(context, "factor_config", {}).get("data", {})
     cache_dir = data_config.get("cache_dir")
     if cache_dir:
         client = None
@@ -241,11 +243,11 @@ def _resolve_financial_data(context, stock_pool):
                     stock_pool,
                     start_date or as_of_date,
                     end_date,
-                    tables=FINANCIAL_TABLES,
+                    tables=financial_tables,
                 )
             except Exception as exc:  # pragma: no cover - depends on live baostock
                 logger.warning("failed to update baostock financial cache: {}".format(exc))
-        return store.get_financial_tables(stock_pool, as_of_date, tables=FINANCIAL_TABLES)
+        return store.get_financial_tables(stock_pool, as_of_date, tables=financial_tables)
 
     financial_data = {}
     for order_book_id in stock_pool:
@@ -253,7 +255,7 @@ def _resolve_financial_data(context, stock_pool):
         if isinstance(supplied, dict):
             tables = supplied.get(order_book_id, {}) or {}
         financial_data[order_book_id] = {
-            table: tables.get(table, pd.DataFrame()) for table in FINANCIAL_TABLES
+            table: tables.get(table, pd.DataFrame()) for table in financial_tables
         }
     return financial_data
 
@@ -421,27 +423,33 @@ def _enabled_factor_columns(frame, config):
     ]
 
 
-def _raise_if_enabled_financial_data_missing(frame, config):
-    enabled_categories = config.get("factors", {}).get("enabled_categories")
-    if enabled_categories is None:
-        enabled_categories = {meta.category for meta in FACTOR_METADATA.values()}
-    else:
-        enabled_categories = set(enabled_categories)
+def _factor_columns_with_min_coverage(frame, factor_columns, min_coverage=0.0):
+    if not factor_columns:
+        return []
+    if min_coverage is None:
+        min_coverage = 0.0
+    min_coverage = float(min_coverage)
+    retained = []
+    for column in factor_columns:
+        values = pd.to_numeric(frame[column], errors="coerce")
+        if values.notna().mean() >= min_coverage:
+            retained.append(column)
+    return retained
 
-    for category in ("quality", "growth"):
-        if category not in enabled_categories:
-            continue
-        columns = [
-            column
-            for column, meta in FACTOR_METADATA.items()
-            if meta.category == category and column in frame.columns
-        ]
-        if columns and frame[columns].isna().all().all():
-            raise ValueError(
-                "financial factor data is missing for enabled category: {}".format(
-                    category
-                )
-            )
+
+def _factor_weights_for_columns(factor_weights, factor_columns):
+    if not factor_weights:
+        return None
+
+    retained = set(factor_columns)
+    pruned = {}
+    for category, weights in factor_weights.items():
+        category_weights = {
+            factor: weight for factor, weight in weights.items() if factor in retained
+        }
+        if category_weights:
+            pruned[category] = category_weights
+    return pruned or None
 
 
 def _ordered_enabled_categories(config):
@@ -498,8 +506,19 @@ def rebalance(context, bar_dict):
         _order_to_targets({})
         return
 
-    _raise_if_enabled_financial_data_missing(filtered_factors, config)
     factor_columns = _enabled_factor_columns(filtered_factors, config)
+    factor_columns = _factor_columns_with_min_coverage(
+        filtered_factors,
+        factor_columns,
+        min_coverage=config.get("scoring", {}).get("min_factor_coverage", 0.0),
+    )
+    if not factor_columns:
+        logger.warning(
+            "no enabled factor columns passed coverage filter; "
+            "clearing non-target positions"
+        )
+        _order_to_targets({})
+        return
     processed = preprocess_factors(
         filtered_factors[factor_columns],
         FACTOR_METADATA,
@@ -508,11 +527,15 @@ def rebalance(context, bar_dict):
         ),
         missing=config.get("scoring", {}).get("missing", "median"),
     )
+    factor_weights = _factor_weights_for_columns(
+        config["factors"].get("factor_weights"),
+        factor_columns,
+    )
     scored = build_factor_scores(
         processed,
         FACTOR_METADATA,
         config["factors"]["category_weights"],
-        factor_weights=config["factors"].get("factor_weights"),
+        factor_weights=factor_weights,
     )
     targets = _build_targets(scored, _current_positions(), config)
 
