@@ -8,6 +8,7 @@ mod:
     end_date: 2026-04-30
     prefetch: false
     symbols: []
+    index_symbols: []
     runtime_fetch: true
     financial_tables:
       - profit

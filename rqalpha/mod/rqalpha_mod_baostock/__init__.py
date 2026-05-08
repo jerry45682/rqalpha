@@ -10,6 +10,7 @@ __config__ = {
     "end_date": None,
     "prefetch": False,
     "symbols": [],
+    "index_symbols": [],
     "runtime_fetch": True,
     "financial_tables": ["profit", "balance", "growth", "cash_flow", "dupont"],
 }

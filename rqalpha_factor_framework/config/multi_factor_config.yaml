@@ -1,17 +1,14 @@
 stock_pool:
   index: 000300.XSHG
   symbols:
-    - 600000.XSHG
-    - 000001.XSHE
-    - 000002.XSHE
 
 rebalance:
   frequency: monthly
   tradingday: 1
 
 portfolio:
-  holding_count: 30
-  buffer_count: 60
+  holding_count: 20
+  buffer_count: 50
   weighting: equal
 
 factors:
@@ -54,7 +51,7 @@ filters:
   skip_limit_down_sell: true
 
 risk:
-  max_stock_weight: 0.05
+  max_stock_weight: 0.1
   max_industry_weight: 0.25
   market_timing:
     enabled: true
@@ -66,7 +63,7 @@ risk:
 data:
   cache_dir: .rqalpha_factor_cache
   adjustflag: "2"
-  start_date: "2022-01-01"
+  start_date: "2024-01-01"
   end_date:
   prefetch: true
   runtime_fetch: true
@@ -79,8 +76,8 @@ data:
     - dupont
 
 backtest:
-  start_date: "2023-01-03"
-  end_date: "2023-04-28"
+  start_date: "2025-01-01"
+  end_date: "2025-12-28"
   frequency: 1d
   benchmark: 000300.XSHG
   initial_cash: 1000000

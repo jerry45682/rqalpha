@@ -18,16 +18,11 @@ def test_load_default_config_has_required_sections():
         "backtest",
     }
     assert config["stock_pool"]["index"] == "000300.XSHG"
-    assert config["stock_pool"]["symbols"]
-    assert {
-        "600000.XSHG",
-        "000001.XSHE",
-        "000002.XSHE",
-    }.issubset(config["stock_pool"]["symbols"])
+    assert config["stock_pool"]["symbols"] is None
     assert config["rebalance"]["frequency"] == "monthly"
     assert config["rebalance"]["tradingday"] == 1
-    assert config["portfolio"]["holding_count"] == 30
-    assert config["portfolio"]["buffer_count"] == 60
+    assert config["portfolio"]["holding_count"] == 20
+    assert config["portfolio"]["buffer_count"] == 50
     assert config["portfolio"]["weighting"] == "equal"
     assert config["factors"]["enabled_categories"] == [
         "valuation",
@@ -62,7 +57,7 @@ def test_load_default_config_has_required_sections():
     assert config["filters"]["require_positive_pe_pb"] is True
     assert config["filters"]["skip_limit_up_buy"] is True
     assert config["filters"]["skip_limit_down_sell"] is True
-    assert config["risk"]["max_stock_weight"] == 0.05
+    assert config["risk"]["max_stock_weight"] == 0.1
     assert config["risk"]["max_industry_weight"] == 0.25
     assert config["risk"]["market_timing"]["enabled"] is True
     assert config["risk"]["market_timing"]["index"] == "000300.XSHG"
@@ -71,7 +66,7 @@ def test_load_default_config_has_required_sections():
     assert config["risk"]["market_timing"]["full_exposure"] == 1.00
     assert config["data"]["cache_dir"] == ".rqalpha_factor_cache"
     assert config["data"]["adjustflag"] == "2"
-    assert config["data"]["start_date"] == "2022-01-01"
+    assert config["data"]["start_date"] == "2024-01-01"
     assert config["data"]["end_date"] is None
     assert config["data"]["prefetch"] is True
     assert config["data"]["runtime_fetch"] is True
@@ -83,8 +78,8 @@ def test_load_default_config_has_required_sections():
         "cash_flow",
         "dupont",
     ]
-    assert config["backtest"]["start_date"] == "2023-01-03"
-    assert config["backtest"]["end_date"] == "2023-04-28"
+    assert config["backtest"]["start_date"] == "2025-01-03"
+    assert config["backtest"]["end_date"] == "2025-12-28"
     assert config["backtest"]["frequency"] == "1d"
     assert config["backtest"]["benchmark"] == "000300.XSHG"
     assert config["backtest"]["initial_cash"] == 1000000
@@ -112,7 +107,7 @@ def test_load_config_merges_user_overrides(tmp_path):
     config = load_config(path)
 
     assert config["portfolio"]["holding_count"] == 5
-    assert config["portfolio"]["buffer_count"] == 60
+    assert config["portfolio"]["buffer_count"] == 50
     assert config["stock_pool"]["symbols"] == ["600000.XSHG"]
 
 
@@ -236,7 +231,7 @@ def test_load_config_returns_are_isolated_between_calls(tmp_path):
     third = load_config()
 
     assert second["portfolio"]["holding_count"] == 5
-    assert second["portfolio"]["buffer_count"] == 60
+    assert second["portfolio"]["buffer_count"] == 50
     assert second["factors"]["category_weights"]["valuation"] == 0.15
-    assert third["portfolio"]["holding_count"] == 30
+    assert third["portfolio"]["holding_count"] == 20
     assert third["factors"]["category_weights"]["valuation"] == 0.15

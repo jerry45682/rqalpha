@@ -1,3 +1,4 @@
+import sys
 from datetime import date, datetime
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ from rqalpha.mod.rqalpha_mod_baostock.code_map import baostock_to_rqalpha, rqalp
 from rqalpha.mod.rqalpha_mod_baostock.data_source import (
     BaostockDataSource,
     dataframe_to_bars,
+    fetch_baostock_index_components,
     normalize_financial_data,
 )
 from rqalpha.mod.rqalpha_mod_baostock.mod import BaostockMod
@@ -307,6 +309,52 @@ def test_normalize_dupont_financial_data_derives_roa():
     assert result.loc[0, "asset_to_equity"] == "4.0"
 
 
+def test_fetch_baostock_index_components_maps_hs300_codes(monkeypatch):
+    captured = {}
+
+    class FakeLogin:
+        error_code = "0"
+        error_msg = ""
+
+    class FakeResult:
+        error_code = "0"
+        error_msg = ""
+        fields = ["code", "code_name"]
+
+        def __init__(self):
+            self._rows = iter([
+                ["sh.600000", "PF Bank"],
+                ["sz.000001", "PA Bank"],
+            ])
+            self._current = None
+
+        def next(self):
+            try:
+                self._current = next(self._rows)
+                return True
+            except StopIteration:
+                return False
+
+        def get_row_data(self):
+            return self._current
+
+    def query_hs300_stocks(**kwargs):
+        captured["kwargs"] = kwargs
+        return FakeResult()
+
+    fake_baostock = SimpleNamespace(
+        login=lambda: FakeLogin(),
+        logout=lambda: None,
+        query_hs300_stocks=query_hs300_stocks,
+    )
+    monkeypatch.setitem(sys.modules, "baostock", fake_baostock)
+
+    result = fetch_baostock_index_components("000300.XSHG", date="2026-01-31")
+
+    assert captured["kwargs"] == {"date": "2026-01-31"}
+    assert result == ["600000.XSHG", "000001.XSHE"]
+
+
 def test_baostock_data_source_inherits_base_data_source():
     assert issubclass(BaostockDataSource, BaseDataSource)
 
@@ -429,6 +477,110 @@ def test_data_source_prepare_data_passes_cn_stock_trading_calendar():
     assert list(captured["trading_dates"]) == [pd.Timestamp("2026-01-05")]
 
 
+def test_data_source_prepare_data_logs_prefetch_progress(monkeypatch):
+    from rqalpha.mod.rqalpha_mod_baostock import data_source as baostock_data_source
+
+    source = BaostockDataSource.__new__(BaostockDataSource)
+    source._adjustflag = "2"
+    source._start_date = "2026-01-01"
+    source._end_date = "2026-01-31"
+    source._financial_tables = ()
+    source._fetch_baostock = lambda *args: pd.DataFrame()
+    source.get_trading_calendars = lambda: {
+        TRADING_CALENDAR_TYPE.CN_STOCK: pd.DatetimeIndex(["2026-01-05"])
+    }
+
+    class FakeCache:
+        def load_daily_range(self, *args, **kwargs):
+            return pd.DataFrame()
+
+    logged = []
+    source._cache = FakeCache()
+    monkeypatch.setattr(
+        baostock_data_source,
+        "user_system_log",
+        SimpleNamespace(info=lambda message, *args: logged.append((message, args))),
+        raising=False,
+    )
+
+    source.prepare_data(["600000.XSHG", "000001.XSHE"])
+
+    assert logged == [
+        ("Baostock prefetch progress: {}/{} {}", (1, 2, "600000.XSHG")),
+        ("Baostock prefetch progress: {}/{} {}", (2, 2, "000001.XSHE")),
+    ]
+
+
+def test_data_source_prepare_data_uses_single_baostock_session(monkeypatch, tmp_path):
+    from rqalpha.mod.rqalpha_mod_baostock import data_source as baostock_data_source
+
+    source = BaostockDataSource.__new__(BaostockDataSource)
+    source._adjustflag = "2"
+    source._start_date = "2026-01-01"
+    source._end_date = "2026-01-31"
+    source._financial_tables = ("profit", "balance")
+    source._cache = BaostockCache(tmp_path)
+    source.get_trading_calendars = lambda: {
+        TRADING_CALENDAR_TYPE.CN_STOCK: pd.DatetimeIndex(["2026-01-05"])
+    }
+    calls = {"login": 0, "logout": 0, "daily": 0, "financial": 0}
+
+    class FakeLogin:
+        error_code = "0"
+        error_msg = ""
+
+    fake_baostock = SimpleNamespace(
+        login=lambda: calls.__setitem__("login", calls["login"] + 1) or FakeLogin(),
+        logout=lambda: calls.__setitem__("logout", calls["logout"] + 1),
+    )
+
+    def query_daily(bs, *args):
+        assert bs is fake_baostock
+        calls["daily"] += 1
+        return pd.DataFrame(
+            [
+                {
+                    "date": "2026-01-05",
+                    "code": "sh.600000",
+                    "open": "10",
+                    "high": "11",
+                    "low": "9",
+                    "close": "10.5",
+                    "volume": "100",
+                    "amount": "1050",
+                    "turn": "1",
+                    "tradestatus": "1",
+                    "peTTM": "8",
+                    "pbMRQ": "1",
+                    "psTTM": "2",
+                    "isST": "0",
+                }
+            ]
+        )
+
+    def query_financial(bs, *args):
+        assert bs is fake_baostock
+        calls["financial"] += 1
+        return pd.DataFrame()
+
+    monkeypatch.setattr(baostock_data_source, "_import_baostock", lambda: fake_baostock)
+    monkeypatch.setattr(baostock_data_source, "_query_daily_data", query_daily)
+    monkeypatch.setattr(baostock_data_source, "_query_financial_data", query_financial)
+    monkeypatch.setattr(
+        baostock_data_source,
+        "user_system_log",
+        SimpleNamespace(info=lambda *args: None),
+        raising=False,
+    )
+
+    source.prepare_data(["600000.XSHG", "000001.XSHE"])
+
+    assert calls["login"] == 1
+    assert calls["logout"] == 1
+    assert calls["daily"] == 2
+    assert calls["financial"] > 2
+
+
 def test_baostock_mod_prefetches_configured_symbols(monkeypatch, tmp_path):
     from rqalpha.mod.rqalpha_mod_baostock import mod as baostock_mod
 
@@ -461,6 +613,146 @@ def test_baostock_mod_prefetches_configured_symbols(monkeypatch, tmp_path):
             end_date="2026-01-31",
             prefetch=True,
             symbols=["600000.XSHG", "000001.XSHE"],
+            runtime_fetch=False,
+            financial_tables=["profit"],
+        ),
+    )
+
+    assert prepared == ["600000.XSHG", "000001.XSHE"]
+
+
+def test_baostock_mod_prefetches_index_components(monkeypatch, tmp_path):
+    from rqalpha.mod.rqalpha_mod_baostock import mod as baostock_mod
+
+    prepared = []
+
+    class FakeDataSource:
+        def __init__(self, base_config, mod_config):
+            self.base_config = base_config
+            self.mod_config = mod_config
+
+        def prepare_data(self, symbols=None):
+            prepared.extend(symbols)
+
+    monkeypatch.setattr(baostock_mod, "BaostockDataSource", FakeDataSource)
+    monkeypatch.setattr(
+        baostock_mod,
+        "fetch_baostock_index_components",
+        lambda index, date=None: ["600000.XSHG", "000001.XSHE"],
+    )
+    env = SimpleNamespace(
+        config=SimpleNamespace(
+            base=SimpleNamespace(
+                end_date=date(2026, 1, 31),
+            )
+        ),
+        set_data_source=lambda data_source: None,
+    )
+
+    BaostockMod().start_up(
+        env,
+        SimpleNamespace(
+            cache_dir=tmp_path,
+            adjustflag="2",
+            start_date="2026-01-01",
+            end_date=None,
+            prefetch=True,
+            symbols=[],
+            index_symbols=["000300.XSHG"],
+            runtime_fetch=False,
+            financial_tables=["profit"],
+        ),
+    )
+
+    assert prepared == ["600000.XSHG", "000001.XSHE"]
+
+
+def test_baostock_mod_deduplicates_explicit_and_index_symbols(monkeypatch, tmp_path):
+    from rqalpha.mod.rqalpha_mod_baostock import mod as baostock_mod
+
+    prepared = []
+
+    class FakeDataSource:
+        def __init__(self, base_config, mod_config):
+            pass
+
+        def prepare_data(self, symbols=None):
+            prepared.extend(symbols)
+
+    monkeypatch.setattr(baostock_mod, "BaostockDataSource", FakeDataSource)
+    monkeypatch.setattr(
+        baostock_mod,
+        "fetch_baostock_index_components",
+        lambda index, date=None: ["600000.XSHG", "000001.XSHE"],
+    )
+    env = SimpleNamespace(
+        config=SimpleNamespace(base=SimpleNamespace(end_date=date(2026, 1, 31))),
+        set_data_source=lambda data_source: None,
+    )
+
+    BaostockMod().start_up(
+        env,
+        SimpleNamespace(
+            cache_dir=tmp_path,
+            adjustflag="2",
+            start_date="2026-01-01",
+            end_date="2026-01-31",
+            prefetch=True,
+            symbols=["600000.XSHG", "000002.XSHE"],
+            index_symbols=["000300.XSHG"],
+            runtime_fetch=False,
+            financial_tables=["profit"],
+        ),
+    )
+
+    assert prepared == ["600000.XSHG", "000002.XSHE", "000001.XSHE"]
+
+
+def test_baostock_mod_filters_prefetch_symbols_to_bundle_instruments(monkeypatch, tmp_path):
+    from rqalpha.mod.rqalpha_mod_baostock import mod as baostock_mod
+
+    prepared = []
+
+    class FakeDataSource:
+        def __init__(self, base_config, mod_config):
+            pass
+
+        def get_instruments(self, symbols):
+            return [
+                SimpleNamespace(order_book_id=symbol)
+                for symbol in symbols
+                if symbol != "600930.XSHG"
+            ]
+
+        def prepare_data(self, symbols=None):
+            prepared.extend(symbols)
+
+    monkeypatch.setattr(baostock_mod, "BaostockDataSource", FakeDataSource)
+    monkeypatch.setattr(
+        baostock_mod,
+        "fetch_baostock_index_components",
+        lambda index, date=None: ["600000.XSHG", "600930.XSHG", "000001.XSHE"],
+    )
+    monkeypatch.setattr(
+        baostock_mod,
+        "user_system_log",
+        SimpleNamespace(info=lambda *args: None, warn=lambda *args: None),
+    )
+    env = SimpleNamespace(
+        config=SimpleNamespace(base=SimpleNamespace(end_date=date(2026, 1, 31))),
+        set_data_source=lambda data_source: None,
+    )
+
+    BaostockMod().start_up(
+        env,
+        SimpleNamespace(
+            cache_dir=tmp_path,
+            adjustflag="2",
+            start_date="2026-01-01",
+            end_date="2026-01-31",
+            prefetch=True,
+            symbols=[],
+            index_symbols=["000300.XSHG"],
             runtime_fetch=False,
             financial_tables=["profit"],
         ),

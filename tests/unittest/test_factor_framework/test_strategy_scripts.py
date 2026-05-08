@@ -10,7 +10,7 @@ from rqalpha_factor_framework.config import load_config
 
 
 def test_strategy_scripts_import_smoke():
-    assert load_config()["portfolio"]["holding_count"] == 30
+    assert load_config()["portfolio"]["holding_count"] == 20
 
     from rqalpha_factor_framework.strategies import multi_factor_strategy
     from rqalpha_factor_framework.reports.performance_report import export_result_pickle
@@ -39,6 +39,41 @@ def test_resolve_stock_pool_prefers_configured_symbols(monkeypatch):
         "600000.XSHG",
         "000001.XSHE",
         "000002.XSHE",
+    ]
+
+
+def test_resolve_stock_pool_filters_symbols_missing_from_bundle(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "index_components",
+        lambda index: ["600000.XSHG", "600930.XSHG", "000001.XSHE"],
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy.Environment,
+        "get_instance",
+        lambda: SimpleNamespace(
+            data_proxy=SimpleNamespace(
+                instruments=lambda symbols: [
+                    SimpleNamespace(order_book_id=symbol)
+                    for symbol in symbols
+                    if symbol != "600930.XSHG"
+                ]
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "logger",
+        SimpleNamespace(warning=lambda *args, **kwargs: None),
+    )
+
+    config = {"stock_pool": {"index": "000300.XSHG", "symbols": []}}
+
+    assert multi_factor_strategy._resolve_stock_pool(config) == [
+        "600000.XSHG",
+        "000001.XSHE",
     ]
 
 
@@ -1020,7 +1055,7 @@ def test_build_rqalpha_config_sets_configured_data_bundle_path(tmp_path):
     assert config["base"]["data_bundle_path"] == str(bundle_path)
 
 
-def test_build_rqalpha_config_requires_explicit_symbols_for_index_prefetch(tmp_path):
+def test_build_rqalpha_config_passes_index_symbols_for_prefetch(tmp_path):
     from rqalpha_factor_framework.backtest.run_backtest import build_rqalpha_config
 
     config_path = tmp_path / "config.yaml"
@@ -1032,8 +1067,10 @@ def test_build_rqalpha_config_requires_explicit_symbols_for_index_prefetch(tmp_p
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="index pool prefetch requires explicit symbols"):
-        build_rqalpha_config(config_path)
+    config = build_rqalpha_config(config_path)
+
+    assert config["mod"]["baostock"]["symbols"] == []
+    assert config["mod"]["baostock"]["index_symbols"] == ["000300.XSHG"]
 
 
 def test_build_rqalpha_config_uses_env_bundle_path_when_config_is_null(
@@ -1062,8 +1099,8 @@ def test_run_backtest_main_calls_rqalpha_run_with_strategy_contract():
     assert result == {"ok": True}
     run.assert_called_once()
     config = run.call_args.args[0]
-    assert config["base"]["start_date"] == "2023-01-03"
-    assert config["base"]["end_date"] == "2023-04-28"
+    assert config["base"]["start_date"] == "2025-01-03"
+    assert config["base"]["end_date"] == "2025-12-28"
     assert config["base"]["frequency"] == "1d"
     assert config["base"]["accounts"] == {"stock": 1000000}
     assert config["extra"]["context_vars"]["factor_config_path"]

@@ -67,8 +67,30 @@ def _resolve_stock_pool(config):
     stock_pool = config["stock_pool"]
     symbols = stock_pool.get("symbols") or []
     if symbols:
-        return list(symbols)
-    return list(index_components(stock_pool["index"]))
+        return _filter_stock_pool_to_bundle(list(symbols))
+    return _filter_stock_pool_to_bundle(list(index_components(stock_pool["index"])))
+
+
+def _filter_stock_pool_to_bundle(symbols):
+    try:
+        instruments = Environment.get_instance().data_proxy.instruments(symbols)
+    except Exception:
+        return symbols
+
+    valid = {
+        instrument.order_book_id
+        for instrument in instruments
+        if getattr(instrument, "order_book_id", None)
+    }
+    filtered = [symbol for symbol in symbols if symbol in valid]
+    skipped = [symbol for symbol in symbols if symbol not in valid]
+    if skipped:
+        logger.warning(
+            "filtered {} stock pool symbols missing from bundle: {}".format(
+                len(skipped), skipped[:10]
+            )
+        )
+    return filtered
 
 
 def _position_order_book_id(position):
