@@ -1,6 +1,7 @@
 import pandas as pd
 
 from rqalpha_factor_framework.portfolio.constraints import (
+    apply_industry_weight_cap,
     apply_stock_weight_cap,
     market_timing_exposure,
 )
@@ -53,6 +54,29 @@ def test_stock_weight_cap_rejects_negative_cap():
         apply_stock_weight_cap({"a": 0.1}, -0.1)
     except ValueError as exc:
         assert "max_weight" in str(exc)
+    else:
+        raise AssertionError("negative cap should raise ValueError")
+
+
+def test_industry_weight_cap_scales_only_overweight_industries():
+    weights = {"a": 0.3, "b": 0.3, "c": 0.2, "d": 0.2}
+    industry_map = {"a": "bank", "b": "bank", "c": "tech"}
+
+    capped = apply_industry_weight_cap(weights, industry_map, 0.4)
+
+    assert capped == {
+        "a": 0.2,
+        "b": 0.2,
+        "c": 0.2,
+        "d": 0.2,
+    }
+
+
+def test_industry_weight_cap_rejects_negative_cap():
+    try:
+        apply_industry_weight_cap({"a": 0.1}, {"a": "bank"}, -0.1)
+    except ValueError as exc:
+        assert "max_industry_weight" in str(exc)
     else:
         raise AssertionError("negative cap should raise ValueError")
 

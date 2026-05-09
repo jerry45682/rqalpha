@@ -22,6 +22,7 @@ from rqalpha_factor_framework.factors.technical import calculate_technical_facto
 from rqalpha_factor_framework.factors.valuation import calculate_valuation_factors
 from rqalpha_factor_framework.filters import filter_by_avg_amount, filter_stocks
 from rqalpha_factor_framework.portfolio import (
+    apply_industry_weight_cap,
     apply_stock_weight_cap,
     build_equal_weight_targets,
     build_score_weight_targets,
@@ -32,20 +33,24 @@ from rqalpha_factor_framework.scoring import build_factor_scores, preprocess_fac
 
 HISTORY_BAR_COUNT = 130
 HISTORY_FIELDS = [
+    "datetime",
     "open",
     "high",
     "low",
     "close",
+    "preclose",
     "volume",
     "amount",
     "turn",
     "tradestatus",
+    "pctChg",
     "peTTM",
     "pbMRQ",
     "psTTM",
+    "pcfNcfTTM",
     "isST",
 ]
-FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow", "dupont")
+FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow", "dupont", "operation")
 
 
 def init(context):
@@ -55,11 +60,16 @@ def init(context):
     config = load_config(config_path)
     context.factor_config = config
 
-    scheduler.run_monthly(
-        rebalance,
-        tradingday=int(config["rebalance"]["tradingday"]),
-        time_rule=market_open(minute=1),
-    )
+    rebalance_config = config["rebalance"]
+    frequency = str(rebalance_config.get("frequency", "monthly")).lower()
+    tradingday = int(rebalance_config["tradingday"])
+    time_rule = market_open(minute=1)
+    if frequency == "weekly":
+        scheduler.run_weekly(rebalance, tradingday=tradingday, time_rule=time_rule)
+    elif frequency == "monthly":
+        scheduler.run_monthly(rebalance, tradingday=tradingday, time_rule=time_rule)
+    else:
+        raise ValueError("unsupported rebalance frequency: {}".format(frequency))
     logger.info("factor framework strategy initialized")
 
 
@@ -204,17 +214,29 @@ def _bars_to_frame(bars, order_book_id):
     return frame
 
 
-def _fetch_daily_data(stock_pool):
+def _frame_as_of(frame, as_of_date, max_count=None):
+    if frame.empty or as_of_date is None or "date" not in frame.columns:
+        return frame.tail(max_count) if max_count is not None else frame
+
+    dates = _parse_datetime_series(frame["date"])
+    as_of = pd.Timestamp(as_of_date).normalize()
+    filtered = frame.loc[dates.dt.normalize() <= as_of]
+    if max_count is not None:
+        filtered = filtered.tail(max_count)
+    return filtered.reset_index(drop=True)
+
+
+def _fetch_daily_data(stock_pool, as_of_date=None):
     daily_data = {}
     for order_book_id in stock_pool:
         try:
             bars = history_bars(
                 order_book_id,
-                HISTORY_BAR_COUNT,
+                HISTORY_BAR_COUNT + 1,
                 "1d",
                 HISTORY_FIELDS,
                 skip_suspended=False,
-                include_now=True,
+                include_now=False,
                 adjust_type="pre",
             )
         except Exception as exc:  # pragma: no cover - depends on live data backend
@@ -224,6 +246,7 @@ def _fetch_daily_data(stock_pool):
             continue
 
         frame = _bars_to_frame(bars, order_book_id)
+        frame = _frame_as_of(frame, as_of_date, max_count=HISTORY_BAR_COUNT)
         if frame.empty:
             logger.warning("history bars empty for {}".format(order_book_id))
             continue
@@ -260,17 +283,48 @@ def _environment_datetime():
     return pd.NaT
 
 
-def _resolve_financial_data(context, stock_pool):
+def _previous_trading_datetime(context):
+    try:
+        current = _context_datetime(context)
+    except ValueError:
+        return None
+    try:
+        env = Environment.get_instance()
+        previous = env.data_proxy.get_previous_trading_date(current.date())
+        parsed = pd.to_datetime(previous, errors="coerce")
+        if pd.notna(parsed):
+            return parsed.normalize()
+    except Exception:
+        pass
+    return (current.normalize() - pd.offsets.BDay(1)).normalize()
+
+
+def _filter_financial_table_as_of(frame, as_of_date):
+    from rqalpha_factor_framework.data.factor_store import _filter_financial_by_pub_date
+
+    if frame is None:
+        return pd.DataFrame()
+    if as_of_date is None:
+        return pd.DataFrame(frame)
+    return _filter_financial_by_pub_date(pd.DataFrame(frame), pd.Timestamp(as_of_date))
+
+
+def _resolve_financial_data(context, stock_pool, as_of_date=None):
     supplied = getattr(context, "financial_data", None)
     stock_pool = list(stock_pool)
     data_config = getattr(context, "factor_config", {}).get("data", {})
     financial_tables = list(data_config.get("financial_tables") or FINANCIAL_TABLES)
+    if as_of_date is None:
+        as_of_date = _previous_trading_datetime(context)
     if isinstance(supplied, dict) and supplied:
         financial_data = {}
         for order_book_id in stock_pool:
             tables = supplied.get(order_book_id, {}) or {}
             financial_data[order_book_id] = {
-                table: tables.get(table, pd.DataFrame()) for table in financial_tables
+                table: _filter_financial_table_as_of(
+                    tables.get(table, pd.DataFrame()), as_of_date
+                )
+                for table in financial_tables
             }
         return financial_data
 
@@ -280,7 +334,6 @@ def _resolve_financial_data(context, stock_pool):
         if data_config.get("runtime_fetch_financial", False):
             client = BaostockClient(adjustflag=data_config.get("adjustflag", "2"))
         store = FactorStore(cache_dir, client=client)
-        as_of_date = _context_datetime(context)
         start_date = data_config.get("start_date")
         end_date = data_config.get("end_date") or as_of_date
         if client is not None:
@@ -293,6 +346,8 @@ def _resolve_financial_data(context, stock_pool):
                 )
             except Exception as exc:  # pragma: no cover - depends on live baostock
                 logger.warning("failed to update baostock financial cache: {}".format(exc))
+        if as_of_date is None:
+            as_of_date = _context_datetime(context)
         return store.get_financial_tables(stock_pool, as_of_date, tables=financial_tables)
 
     financial_data = {}
@@ -304,6 +359,34 @@ def _resolve_financial_data(context, stock_pool):
             table: tables.get(table, pd.DataFrame()) for table in financial_tables
         }
     return financial_data
+
+
+def _resolve_industry_map(context, stock_pool, as_of_date=None):
+    supplied = getattr(context, "industry_map", None)
+    stock_pool = list(stock_pool)
+    if isinstance(supplied, dict) and supplied:
+        return {
+            order_book_id: supplied[order_book_id]
+            for order_book_id in stock_pool
+            if order_book_id in supplied
+        }
+
+    data_config = getattr(context, "factor_config", {}).get("data", {})
+    cache_dir = data_config.get("cache_dir")
+    if not cache_dir:
+        return {}
+
+    client = None
+    if data_config.get("runtime_fetch_industry", True):
+        client = BaostockClient(adjustflag=data_config.get("adjustflag", "2"))
+    store = FactorStore(cache_dir, client=client)
+    if as_of_date is None:
+        as_of_date = _previous_trading_datetime(context)
+    try:
+        return store.get_industry_map(stock_pool, as_of_date)
+    except Exception as exc:  # pragma: no cover - depends on live baostock
+        logger.warning("failed to update baostock industry cache: {}".format(exc))
+        return {}
 
 
 def _calculate_raw_factors(daily_data, financial_data):
@@ -365,16 +448,16 @@ def _apply_filters(raw_factors, daily_data, config):
     )
 
 
-def _close_series_from_bars(bars):
+def _close_series_from_bars(bars, as_of_date=None, max_count=None):
     if bars is None:
         return pd.Series(dtype="float64")
     if isinstance(bars, pd.DataFrame):
-        frame = bars
-        if "close" in frame.columns:
-            return pd.to_numeric(frame["close"], errors="coerce").dropna()
-        return pd.Series(dtype="float64")
-
-    frame = pd.DataFrame(bars)
+        frame = bars.copy()
+    else:
+        frame = pd.DataFrame(bars)
+    if "date" not in frame.columns and "datetime" in frame.columns:
+        frame["date"] = _parse_datetime_series(frame["datetime"])
+    frame = _frame_as_of(frame, as_of_date, max_count=max_count)
     if "close" in frame.columns:
         return pd.to_numeric(frame["close"], errors="coerce").dropna()
     if frame.shape[1] == 1:
@@ -382,7 +465,7 @@ def _close_series_from_bars(bars):
     return pd.to_numeric(pd.Series(bars), errors="coerce").dropna()
 
 
-def _resolve_total_exposure(config):
+def _resolve_total_exposure(config, as_of_date=None):
     risk_config = config.get("risk", {})
     timing_config = risk_config.get("market_timing", {})
     full_exposure = timing_config.get("full_exposure", 1.0)
@@ -393,11 +476,11 @@ def _resolve_total_exposure(config):
     try:
         bars = history_bars(
             timing_config["index"],
-            250,
+            251,
             "1d",
-            "close",
+            ["datetime", "close"],
             skip_suspended=False,
-            include_now=True,
+            include_now=False,
             adjust_type="pre",
         )
     except Exception as exc:  # pragma: no cover - depends on live data backend
@@ -408,7 +491,7 @@ def _resolve_total_exposure(config):
         )
         return float(full_exposure)
 
-    close = _close_series_from_bars(bars)
+    close = _close_series_from_bars(bars, as_of_date=as_of_date, max_count=250)
     if len(close) < 120:
         logger.warning("market timing data is insufficient; using full exposure")
         return float(full_exposure)
@@ -421,11 +504,16 @@ def _resolve_total_exposure(config):
     )
 
 
-def _build_targets(scored, current_positions, config):
+def _build_targets(
+    scored, current_positions, config, industry_map=None, as_of_date=None
+):
     portfolio_config = config["portfolio"]
     risk_config = config.get("risk", {})
     holding_count = portfolio_config["holding_count"]
-    total_exposure = _resolve_total_exposure(config)
+    if as_of_date is None:
+        total_exposure = _resolve_total_exposure(config)
+    else:
+        total_exposure = _resolve_total_exposure(config, as_of_date=as_of_date)
 
     if portfolio_config.get("weighting") == "score":
         targets = build_score_weight_targets(
@@ -443,7 +531,16 @@ def _build_targets(scored, current_positions, config):
         )
 
     if "max_stock_weight" in risk_config:
-        return apply_stock_weight_cap(targets, risk_config["max_stock_weight"])
+        targets = apply_stock_weight_cap(targets, risk_config["max_stock_weight"])
+    if "max_industry_weight" in risk_config:
+        if industry_map:
+            targets = apply_industry_weight_cap(
+                targets,
+                industry_map,
+                risk_config["max_industry_weight"],
+            )
+        else:
+            logger.warning("industry map unavailable; skipping industry weight cap")
     return targets
 
 
@@ -535,17 +632,21 @@ def _score_log_message(order_book_id, score_row, config):
 
 def rebalance(context, bar_dict):
     config = context.factor_config
-    now = getattr(context, "now", None)
-    stock_pool = _resolve_stock_pool(config, date=now.date() if now is not None else None)
+    signal_dt = _previous_trading_datetime(context)
+    stock_pool = _resolve_stock_pool(
+        config, date=signal_dt.date() if signal_dt is not None else None
+    )
     logger.info("stock pool size: {}".format(len(stock_pool)))
 
-    daily_data = _fetch_daily_data(stock_pool)
+    daily_data = _fetch_daily_data(stock_pool, as_of_date=signal_dt)
     if not daily_data:
         logger.warning("no daily data available; clearing non-target positions")
         _order_to_targets({})
         return
 
-    financial_data = _resolve_financial_data(context, daily_data.keys())
+    financial_data = _resolve_financial_data(
+        context, daily_data.keys(), as_of_date=signal_dt
+    )
     raw_factors = _calculate_raw_factors(daily_data, financial_data)
     filtered_factors = _apply_filters(raw_factors, daily_data, config)
     if filtered_factors.empty:
@@ -584,7 +685,14 @@ def rebalance(context, bar_dict):
         config["factors"]["category_weights"],
         factor_weights=factor_weights,
     )
-    targets = _build_targets(scored, _current_positions(), config)
+    industry_map = _resolve_industry_map(context, scored.index, as_of_date=signal_dt)
+    targets = _build_targets(
+        scored,
+        _current_positions(),
+        config,
+        industry_map=industry_map,
+        as_of_date=signal_dt,
+    )
 
     logger.info("target stocks: {}".format(list(targets)))
     for order_book_id in targets:

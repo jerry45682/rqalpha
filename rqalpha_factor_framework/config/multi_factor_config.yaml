@@ -68,12 +68,14 @@ data:
   prefetch: true
   runtime_fetch: true
   runtime_fetch_financial: false
+  runtime_fetch_industry: true
   financial_tables:
     - profit
     - balance
     - growth
     - cash_flow
     - dupont
+    - operation
 
 backtest:
   start_date: "2025-01-03"

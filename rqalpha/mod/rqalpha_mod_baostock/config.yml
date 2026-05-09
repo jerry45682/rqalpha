@@ -7,6 +7,7 @@ mod:
     start_date: 2025-01-01
     end_date: 2026-04-30
     prefetch: false
+    prefetch_workers: 2
     symbols: []
     index_symbols: []
     runtime_fetch: true
@@ -16,3 +17,4 @@ mod:
       - growth
       - cash_flow
       - dupont
+      - operation

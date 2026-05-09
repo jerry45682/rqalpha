@@ -5,7 +5,7 @@ import pandas as pd
 from .baostock_client import rqalpha_to_baostock
 from .cache import CsvCache
 
-FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow", "dupont")
+FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow", "dupont", "operation")
 
 
 class FactorStore:
@@ -30,8 +30,21 @@ class FactorStore:
         path = self.cache.path_for(f"financial_{table}", order_book_id)
         frame.to_csv(path, index=False, encoding="utf-8-sig")
 
+    def write_industry(self, date, frame):
+        path = self.cache.path_for("industry", self._industry_key(date))
+        frame.to_csv(path, index=False, encoding="utf-8-sig")
+
     def read_financial(self, order_book_id, table):
         path = self.cache.path_for(f"financial_{table}", order_book_id)
+        if not path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame()
+
+    def read_industry(self, date):
+        path = self.cache.path_for("industry", self._industry_key(date))
         if not path.exists():
             return pd.DataFrame()
         try:
@@ -64,6 +77,39 @@ class FactorStore:
         for order_book_id in order_book_ids:
             for table in tables:
                 self._update_financial_quarters(order_book_id, table, year_quarters)
+
+    def prepare_industry(self, date):
+        if self.client is None:
+            raise RuntimeError("data client is required when industry cache is missing")
+        key = self._industry_key(date)
+        frame = self.client.query_stock_industry(code="", date=key)
+        frame = _normalize_industry_frame(frame)
+        self.write_industry(key, frame)
+        return frame
+
+    def get_industry_map(self, order_book_ids, date):
+        frame = self.read_industry(date)
+        if frame.empty and self.client is not None:
+            frame = self.prepare_industry(date)
+        if frame.empty:
+            return {}
+        frame = _normalize_industry_frame(frame)
+        industry_column = _industry_column(frame)
+        if industry_column is None or "order_book_id" not in frame.columns:
+            return {}
+
+        wanted = set(order_book_ids)
+        industry_map = {}
+        for _, row in frame.iterrows():
+            order_book_id = row.get("order_book_id")
+            industry = row.get(industry_column)
+            if (
+                order_book_id in wanted
+                and pd.notna(industry)
+                and str(industry).strip()
+            ):
+                industry_map[order_book_id] = str(industry)
+        return industry_map
 
     def get_financial_tables(self, order_book_ids, date, tables=None):
         tables = tuple(tables or FINANCIAL_TABLES)
@@ -101,6 +147,10 @@ class FactorStore:
     @staticmethod
     def _daily_key(order_book_id, start_date, end_date):
         return f"{order_book_id}_{start_date}_{end_date}"
+
+    @staticmethod
+    def _industry_key(date):
+        return str(pd.Timestamp(date).date())
 
     @staticmethod
     def _latest_financial_values(frame, order_book_id, as_of_date, fields):
@@ -202,6 +252,33 @@ def _normalize_financial_frame(frame, order_book_id, year=None, quarter=None):
     if quarter is not None and "quarter" not in frame.columns:
         frame["quarter"] = int(quarter)
     return frame.reset_index(drop=True)
+
+
+def _normalize_industry_frame(frame):
+    frame = pd.DataFrame() if frame is None else pd.DataFrame(frame).copy()
+    if frame.empty:
+        return frame
+    if "order_book_id" not in frame.columns and "code" in frame.columns:
+        frame["order_book_id"] = frame["code"].map(_safe_baostock_to_rqalpha)
+    return frame.reset_index(drop=True)
+
+
+def _safe_baostock_to_rqalpha(code):
+    if not isinstance(code, str) or "." not in code:
+        return code
+    exchange, symbol = code.split(".", 1)
+    if exchange == "sh":
+        return f"{symbol}.XSHG"
+    if exchange == "sz":
+        return f"{symbol}.XSHE"
+    return code
+
+
+def _industry_column(frame):
+    for column in ("industry", "industry_name", "industryClassification"):
+        if column in frame.columns:
+            return column
+    return None
 
 
 def _merge_financial_frames(frames):

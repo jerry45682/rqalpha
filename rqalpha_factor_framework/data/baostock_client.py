@@ -10,13 +10,16 @@ DAILY_FIELDS = [
     "high",
     "low",
     "close",
+    "preclose",
     "volume",
     "amount",
     "turn",
     "tradestatus",
+    "pctChg",
     "peTTM",
     "pbMRQ",
     "psTTM",
+    "pcfNcfTTM",
     "isST",
 ]
 
@@ -50,6 +53,15 @@ CASH_FLOW_FIELD_ALIASES = {
 DUPONT_FIELD_ALIASES = {
     "dupontAssetStoEquity": "asset_to_equity",
     "dupontAssetTurn": "asset_turnover",
+}
+
+OPERATION_FIELD_ALIASES = {
+    "NRTurnRatio": "receivables_turnover",
+    "NRTurnDays": "receivables_turnover_days",
+    "INVTurnRatio": "inventory_turnover",
+    "INVTurnDays": "inventory_turnover_days",
+    "CATurnRatio": "current_asset_turnover",
+    "AssetTurnRatio": "asset_turnover",
 }
 
 
@@ -155,6 +167,29 @@ class BaostockClient:
                 "dupont",
             )
 
+    def query_operation_data(self, order_book_id, year, quarter):
+        with baostock_session() as bs:
+            result = bs.query_operation_data(
+                code=rqalpha_to_baostock(order_book_id),
+                year=year,
+                quarter=quarter,
+            )
+            return _normalize_fields(_result_to_frame(result), OPERATION_FIELD_ALIASES)
+
+    def query_stock_industry(self, code="", date=""):
+        baostock_code = rqalpha_to_baostock(code) if code else ""
+        query_date = "" if date in (None, "") else str(pd.Timestamp(date).date())
+        with baostock_session() as bs:
+            result = bs.query_stock_industry(
+                code=baostock_code,
+                date=query_date,
+            )
+            frame = _result_to_frame(result)
+
+        if "code" in frame.columns:
+            frame["order_book_id"] = frame["code"].map(baostock_to_rqalpha)
+        return frame
+
     def query_financial_table(self, order_book_id, table, year, quarter):
         query = {
             "profit": self.query_profit_data,
@@ -162,6 +197,7 @@ class BaostockClient:
             "growth": self.query_growth_data,
             "cash_flow": self.query_cash_flow_data,
             "dupont": self.query_dupont_data,
+            "operation": self.query_operation_data,
         }.get(table)
         if query is None:
             raise ValueError(f"unsupported baostock financial table: {table}")

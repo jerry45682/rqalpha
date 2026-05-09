@@ -4,7 +4,7 @@ import pandas as pd
 from .base import build_factor_frame, nan_row, sorted_frame
 
 
-FACTOR_COLUMNS = ["pe_ttm", "pb", "ps_ttm"]
+FACTOR_COLUMNS = ["pe_ttm", "pb", "ps_ttm", "pcf_ncf_ttm"]
 
 
 def _numeric_value(value):
@@ -21,5 +21,6 @@ def calculate_valuation_factors(daily_data):
             row["pe_ttm"] = _numeric_value(latest.get("peTTM", np.nan))
             row["pb"] = _numeric_value(latest.get("pbMRQ", np.nan))
             row["ps_ttm"] = _numeric_value(latest.get("psTTM", np.nan))
+            row["pcf_ncf_ttm"] = _numeric_value(latest.get("pcfNcfTTM", np.nan))
         rows.append(row)
     return build_factor_frame(rows, FACTOR_COLUMNS)

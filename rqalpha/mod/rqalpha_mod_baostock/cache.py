@@ -103,6 +103,26 @@ class BaostockCache(object):
         stored = self.read_daily(order_book_id, adjustflag)
         return _slice_daily_range(stored, start_date, end_date)
 
+    def has_daily_range(
+        self,
+        order_book_id,
+        start_date,
+        end_date,
+        adjustflag,
+        required_columns=None,
+        trading_dates=None,
+    ):
+        cached = self.read_daily(order_book_id, adjustflag)
+        if _covers_date_range(
+            cached, start_date, end_date, trading_dates
+        ) and _has_required_columns(cached, required_columns):
+            return True
+
+        legacy = self.read(order_book_id, start_date, end_date, adjustflag)
+        return _covers_date_range(
+            legacy, start_date, end_date, trading_dates
+        ) and _has_required_columns(legacy, required_columns)
+
     def financial_path_for(self, order_book_id, table):
         directory = self._cache_dir / "financial_{}".format(_safe_name(table))
         directory.mkdir(parents=True, exist_ok=True)
@@ -125,20 +145,33 @@ class BaostockCache(object):
     def update_financial_quarters(self, order_book_id, table, year_quarters, fetcher):
         cached = self.read_financial(order_book_id, table)
         existing = _existing_quarters(cached)
+        missing = [
+            (int(year), int(quarter))
+            for year, quarter in year_quarters
+            if (int(year), int(quarter)) not in existing
+        ]
+        if not missing:
+            return cached
+
         pieces = [cached] if not cached.empty else []
 
-        for year, quarter in year_quarters:
-            key = (int(year), int(quarter))
-            if key in existing:
-                continue
-            fetched = fetcher(order_book_id, table, key[0], key[1])
-            frame = _normalize_financial_frame(fetched, order_book_id, key[0], key[1])
+        for year, quarter in missing:
+            fetched = fetcher(order_book_id, table, year, quarter)
+            frame = _normalize_financial_frame(fetched, order_book_id, year, quarter)
             if not frame.empty:
                 pieces.append(frame)
 
         merged = _merge_financial_frames(pieces)
         self.write_financial(order_book_id, table, merged)
         return merged
+
+    def has_financial_quarters(self, order_book_id, table, year_quarters):
+        cached = self.read_financial(order_book_id, table)
+        existing = _existing_quarters(cached)
+        return all(
+            (int(year), int(quarter)) in existing
+            for year, quarter in year_quarters
+        )
 
 
 def _safe_name(value):

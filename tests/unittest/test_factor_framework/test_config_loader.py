@@ -73,12 +73,14 @@ def test_load_default_config_has_required_sections():
     assert config["data"]["prefetch"] is True
     assert config["data"]["runtime_fetch"] is True
     assert config["data"]["runtime_fetch_financial"] is False
+    assert config["data"]["runtime_fetch_industry"] is True
     assert config["data"]["financial_tables"] == [
         "profit",
         "balance",
         "growth",
         "cash_flow",
         "dupont",
+        "operation",
     ]
     assert config["backtest"]["start_date"] == "2025-01-03"
     assert config["backtest"]["end_date"] == "2025-12-26"
@@ -244,6 +246,7 @@ def test_load_aggressive_template_config():
         Path("rqalpha_factor_framework/config/multi_factor_config_aggressive.yaml")
     )
 
+    assert config["rebalance"]["frequency"] == "weekly"
     assert config["portfolio"]["holding_count"] == 10
     assert config["portfolio"]["buffer_count"] == 20
     assert config["portfolio"]["weighting"] == "score"
@@ -257,6 +260,6 @@ def test_load_aggressive_template_config():
     assert config["risk"]["max_industry_weight"] == 0.60
     assert (
         config["backtest"]["result_path"]
-        == "rqalpha_factor_framework/backtest/multi_factor_result_aggressive.pkl"
+        == "rqalpha_factor_framework/backtest/multi_factor_result_aggressive_weekly.pkl"
     )
     assert abs(sum(config["factors"]["category_weights"].values()) - 1.0) < 1e-12

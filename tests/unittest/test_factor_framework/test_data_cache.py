@@ -1,10 +1,12 @@
 import inspect
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from rqalpha_factor_framework.data.cache import CsvCache
 from rqalpha_factor_framework.data.factor_store import FactorStore
+from rqalpha_factor_framework.data.baostock_client import BaostockClient
 
 
 class DummyClient:
@@ -20,6 +22,107 @@ class DummyClient:
                 "close": [len(self.calls)],
             }
         )
+
+
+def test_baostock_client_query_financial_table_supports_operation(monkeypatch):
+    from rqalpha_factor_framework.data import baostock_client
+
+    captured = {}
+
+    class FakeResult:
+        error_code = "0"
+        fields = [
+            "code",
+            "pubDate",
+            "NRTurnRatio",
+            "INVTurnRatio",
+            "AssetTurnRatio",
+        ]
+
+        def __init__(self):
+            self._rows = iter(
+                [["sh.600000", "2026-04-30", "7.1", "5.2", "0.8"]]
+            )
+            self._current = None
+
+        def next(self):
+            try:
+                self._current = next(self._rows)
+                return True
+            except StopIteration:
+                return False
+
+        def get_row_data(self):
+            return self._current
+
+    class FakeSession:
+        def __enter__(self):
+            def query_operation_data(**kwargs):
+                captured["kwargs"] = kwargs
+                return FakeResult()
+
+            return SimpleNamespace(query_operation_data=query_operation_data)
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(baostock_client, "baostock_session", lambda: FakeSession())
+
+    result = BaostockClient().query_financial_table(
+        "600000.XSHG", "operation", 2026, 1
+    )
+
+    assert captured["kwargs"] == {"code": "sh.600000", "year": 2026, "quarter": 1}
+    assert result.loc[0, "receivables_turnover"] == "7.1"
+    assert result.loc[0, "inventory_turnover"] == "5.2"
+    assert result.loc[0, "asset_turnover"] == "0.8"
+
+
+def test_baostock_client_query_stock_industry_maps_codes(monkeypatch):
+    from rqalpha_factor_framework.data import baostock_client
+
+    captured = {}
+
+    class FakeResult:
+        error_code = "0"
+        fields = ["code", "code_name", "industry", "industryClassification"]
+
+        def __init__(self):
+            self._rows = iter(
+                [
+                    ["sh.600000", "PF Bank", "银行", "申万一级"],
+                    ["sz.000001", "PA Bank", "银行", "申万一级"],
+                ]
+            )
+            self._current = None
+
+        def next(self):
+            try:
+                self._current = next(self._rows)
+                return True
+            except StopIteration:
+                return False
+
+        def get_row_data(self):
+            return self._current
+
+    class FakeSession:
+        def __enter__(self):
+            def query_stock_industry(**kwargs):
+                captured["kwargs"] = kwargs
+                return FakeResult()
+
+            return SimpleNamespace(query_stock_industry=query_stock_industry)
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(baostock_client, "baostock_session", lambda: FakeSession())
+
+    result = BaostockClient().query_stock_industry(date="2026-01-31")
+
+    assert captured["kwargs"] == {"code": "", "date": "2026-01-31"}
+    assert result["order_book_id"].tolist() == ["600000.XSHG", "000001.XSHE"]
 
 
 def _assert_relative_to(path, root):
@@ -277,4 +380,39 @@ def test_factor_store_prepare_financials_defaults_to_all_supported_tables(tmp_pa
 
     store.prepare_financials(["600000.XSHG"], "2026-01-01", "2026-01-01")
 
-    assert set(client.tables) == {"profit", "balance", "growth", "cash_flow", "dupont"}
+    assert set(client.tables) == {
+        "profit",
+        "balance",
+        "growth",
+        "cash_flow",
+        "dupont",
+        "operation",
+    }
+
+
+def test_factor_store_get_industry_map_fetches_and_reuses_cache(tmp_path):
+    class IndustryClient:
+        def __init__(self):
+            self.calls = []
+
+        def query_stock_industry(self, code="", date=""):
+            self.calls.append((code, date))
+            return pd.DataFrame(
+                {
+                    "code": ["sh.600000", "sz.000001"],
+                    "order_book_id": ["600000.XSHG", "000001.XSHE"],
+                    "industry": ["bank", "broker"],
+                }
+            )
+
+    client = IndustryClient()
+    store = FactorStore(tmp_path, client=client)
+
+    first = store.get_industry_map(
+        ["600000.XSHG", "000001.XSHE", "000002.XSHE"], "2026-01-31"
+    )
+    second = store.get_industry_map(["600000.XSHG"], "2026-01-31")
+
+    assert client.calls == [("", "2026-01-31")]
+    assert first == {"600000.XSHG": "bank", "000001.XSHE": "broker"}
+    assert second == {"600000.XSHG": "bank"}

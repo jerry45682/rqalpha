@@ -22,13 +22,16 @@ def sample_daily(order_book_id="600000.XSHG", periods=130):
             "high": close + 0.2,
             "low": close - 0.2,
             "close": close,
+            "preclose": close.shift(1).fillna(close.iloc[0]),
             "volume": np.arange(periods) + 1000,
             "amount": (np.arange(periods) + 1000) * close,
             "turn": np.linspace(1.0, 3.0, periods),
             "tradestatus": 1,
+            "pctChg": 1.0,
             "peTTM": 10.0,
             "pbMRQ": 1.5,
             "psTTM": 2.0,
+            "pcfNcfTTM": 3.0,
             "isST": 0,
         }
     )
@@ -46,6 +49,7 @@ def test_market_factor_modules_return_expected_columns():
     technical = calculate_technical_factors(daily)
 
     assert valuation.loc["600000.XSHG", "pe_ttm"] == 10.0
+    assert valuation.loc["600000.XSHG", "pcf_ncf_ttm"] == 3.0
     assert momentum.loc["600000.XSHG", "return_20"] > 0
     assert reversal.loc["600000.XSHG", "rsi"] > 0
     assert risk.loc["600000.XSHG", "max_drawdown_120"] >= 0
@@ -64,6 +68,7 @@ def test_valuation_factors_convert_baostock_values_to_numeric():
                     "peTTM": "10.5",
                     "pbMRQ": "",
                     "psTTM": None,
+                    "pcfNcfTTM": "4.2",
                 }
             ]
         )
@@ -74,6 +79,7 @@ def test_valuation_factors_convert_baostock_values_to_numeric():
     assert result.loc["600000.XSHG", "pe_ttm"] == 10.5
     assert np.isnan(result.loc["600000.XSHG", "pb"])
     assert np.isnan(result.loc["600000.XSHG", "ps_ttm"])
+    assert result.loc["600000.XSHG", "pcf_ncf_ttm"] == 4.2
 
 
 def test_risk_factors_report_positive_max_drawdown_with_minimum_window():
@@ -119,6 +125,15 @@ def test_financial_factor_modules_return_expected_columns():
                     }
                 ]
             ),
+            "operation": pd.DataFrame(
+                [
+                    {
+                        "asset_turnover": 0.8,
+                        "inventory_turnover": 5.2,
+                        "receivables_turnover": 7.1,
+                    }
+                ]
+            ),
         }
     }
 
@@ -127,6 +142,9 @@ def test_financial_factor_modules_return_expected_columns():
 
     assert quality.loc["600000.XSHG", "roe"] == 0.12
     assert quality.loc["600000.XSHG", "debt_to_asset"] == 0.55
+    assert quality.loc["600000.XSHG", "asset_turnover"] == 0.8
+    assert quality.loc["600000.XSHG", "inventory_turnover"] == 5.2
+    assert quality.loc["600000.XSHG", "receivables_turnover"] == 7.1
     assert growth.loc["600000.XSHG", "net_profit_growth_yoy"] == 0.08
 
 
@@ -356,3 +374,25 @@ def test_financial_factors_select_latest_financial_date_from_unsorted_tables():
     assert quality.loc["600000.XSHG", "roe"] == 0.12
     assert quality.loc["600000.XSHG", "debt_to_asset"] == 0.55
     assert growth.loc["600000.XSHG", "net_profit_growth_yoy"] == 0.08
+
+
+def test_quality_factors_use_operation_asset_turnover_before_dupont_fallback():
+    financial = {
+        "600000.XSHG": {
+            "profit": pd.DataFrame([{"roe": 0.12}]),
+            "balance": pd.DataFrame(),
+            "operation": pd.DataFrame([{"asset_turnover": 0.9}]),
+            "dupont": pd.DataFrame([{"asset_turnover": 0.4}]),
+        },
+        "000001.XSHE": {
+            "profit": pd.DataFrame([{"roe": 0.10}]),
+            "balance": pd.DataFrame(),
+            "operation": pd.DataFrame(),
+            "dupont": pd.DataFrame([{"asset_turnover": 0.6}]),
+        },
+    }
+
+    quality = calculate_quality_factors(financial)
+
+    assert quality.loc["600000.XSHG", "asset_turnover"] == 0.9
+    assert quality.loc["000001.XSHE", "asset_turnover"] == 0.6

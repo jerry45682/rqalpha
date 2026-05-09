@@ -34,13 +34,16 @@ def test_dataframe_to_bars_maps_baostock_fields_to_rqalpha_dtype():
                 "high": "10.8",
                 "low": "9.9",
                 "close": "10.5",
+                "preclose": "10.0",
                 "volume": "10000",
                 "amount": "105000",
                 "turn": "1.2",
                 "tradestatus": "1",
+                "pctChg": "5.0",
                 "peTTM": "8.5",
                 "pbMRQ": "0.9",
                 "psTTM": "1.8",
+                "pcfNcfTTM": "3.2",
                 "isST": "0",
             }
         ]
@@ -54,19 +57,24 @@ def test_dataframe_to_bars_maps_baostock_fields_to_rqalpha_dtype():
         "high",
         "low",
         "close",
+        "preclose",
         "volume",
         "total_turnover",
         "amount",
         "turn",
         "tradestatus",
+        "pctChg",
         "peTTM",
         "pbMRQ",
         "psTTM",
+        "pcfNcfTTM",
         "isST",
     )
     assert bars[0]["datetime"] == 20260105000000
     assert bars[0]["close"] == 10.5
     assert bars[0]["psTTM"] == 1.8
+    assert bars[0]["pcfNcfTTM"] == 3.2
+    assert bars[0]["pctChg"] == 5.0
     assert bars[0]["total_turnover"] == 105000
 
 
@@ -290,6 +298,33 @@ def test_financial_cache_updates_only_missing_quarters(tmp_path):
     ]
 
 
+def test_financial_cache_does_not_rewrite_when_quarters_are_complete(tmp_path):
+    cache = BaostockCache(tmp_path)
+    data = pd.DataFrame(
+        {
+            "order_book_id": ["600000.XSHG"],
+            "year": [2026],
+            "quarter": [1],
+            "roe": [0.1],
+        }
+    )
+    cache.write_financial("600000.XSHG", "profit", data)
+    path = cache.financial_path_for("600000.XSHG", "profit")
+    before = path.stat().st_mtime_ns
+
+    result = cache.update_financial_quarters(
+        "600000.XSHG",
+        "profit",
+        [(2026, 1)],
+        lambda *args: (_ for _ in ()).throw(
+            AssertionError("complete financial cache should not fetch")
+        ),
+    )
+
+    assert path.stat().st_mtime_ns == before
+    assert result[["year", "quarter"]].values.tolist() == [[2026, 1]]
+
+
 def test_normalize_dupont_financial_data_derives_roa():
     frame = pd.DataFrame(
         [
@@ -307,6 +342,33 @@ def test_normalize_dupont_financial_data_derives_roa():
 
     assert result.loc[0, "roa"] == 0.03
     assert result.loc[0, "asset_to_equity"] == "4.0"
+
+
+def test_normalize_operation_financial_data_maps_turnover_fields():
+    frame = pd.DataFrame(
+        [
+            {
+                "code": "sh.600000",
+                "pubDate": "2026-04-30",
+                "statDate": "2026-03-31",
+                "NRTurnRatio": "7.1",
+                "NRTurnDays": "51.4",
+                "INVTurnRatio": "5.2",
+                "INVTurnDays": "70.2",
+                "CATurnRatio": "1.6",
+                "AssetTurnRatio": "0.8",
+            }
+        ]
+    )
+
+    result = normalize_financial_data(frame, "600000.XSHG", "operation", 2026, 1)
+
+    assert result.loc[0, "receivables_turnover"] == "7.1"
+    assert result.loc[0, "receivables_turnover_days"] == "51.4"
+    assert result.loc[0, "inventory_turnover"] == "5.2"
+    assert result.loc[0, "inventory_turnover_days"] == "70.2"
+    assert result.loc[0, "current_asset_turnover"] == "1.6"
+    assert result.loc[0, "asset_turnover"] == "0.8"
 
 
 def test_fetch_baostock_index_components_maps_hs300_codes(monkeypatch):
@@ -391,7 +453,7 @@ def test_data_source_reads_prepared_daily_cache_without_runtime_fetch(tmp_path):
         "2",
         lambda *args: pd.DataFrame(
             [
-                {"date": "2026-01-05", "code": "sh.600000", "open": "10", "high": "11", "low": "9", "close": "10.5", "volume": "100", "amount": "1050", "turn": "1", "tradestatus": "1", "peTTM": "8", "pbMRQ": "1", "psTTM": "2", "isST": "0"},
+                {"date": "2026-01-05", "code": "sh.600000", "open": "10", "high": "11", "low": "9", "close": "10.5", "preclose": "10", "volume": "100", "amount": "1050", "turn": "1", "tradestatus": "1", "pctChg": "5", "peTTM": "8", "pbMRQ": "1", "psTTM": "2", "pcfNcfTTM": "3", "isST": "0"},
             ]
         ),
     )
@@ -435,7 +497,7 @@ def test_data_source_refetches_prepared_daily_cache_missing_required_fields(tmp_
         calls.append(args)
         return pd.DataFrame(
             [
-                {"date": "2026-01-05", "code": "sh.600000", "open": "10", "high": "11", "low": "9", "close": "10.5", "volume": "100", "amount": "1050", "turn": "1", "tradestatus": "1", "peTTM": "8", "pbMRQ": "1", "psTTM": "2", "isST": "0"},
+                {"date": "2026-01-05", "code": "sh.600000", "open": "10", "high": "11", "low": "9", "close": "10.5", "preclose": "10", "volume": "100", "amount": "1050", "turn": "1", "tradestatus": "1", "pctChg": "5", "peTTM": "8", "pbMRQ": "1", "psTTM": "2", "pcfNcfTTM": "3", "isST": "0"},
             ]
         )
 
@@ -453,7 +515,9 @@ def test_data_source_refetches_prepared_daily_cache_missing_required_fields(tmp_
     assert history.tolist() == [(10.5, 2.0)]
 
 
-def test_data_source_prepare_data_passes_cn_stock_trading_calendar():
+def test_data_source_prepare_data_passes_cn_stock_trading_calendar(monkeypatch):
+    from rqalpha.mod.rqalpha_mod_baostock import data_source as baostock_data_source
+
     source = BaostockDataSource.__new__(BaostockDataSource)
     source._adjustflag = "2"
     source._start_date = "2026-01-01"
@@ -472,9 +536,22 @@ def test_data_source_prepare_data_passes_cn_stock_trading_calendar():
         TRADING_CALENDAR_TYPE.CN_STOCK: pd.DatetimeIndex(["2026-01-05"])
     }
 
+    class FakeSession:
+        def __enter__(self):
+            return SimpleNamespace()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(
+        baostock_data_source,
+        "_baostock_session",
+        lambda: FakeSession(),
+    )
+
     source.prepare_data(["600000.XSHG"])
 
-    assert list(captured["trading_dates"]) == [pd.Timestamp("2026-01-05")]
+    assert captured["trading_dates"] == ["2026-01-05"]
 
 
 def test_data_source_prepare_data_logs_prefetch_progress(monkeypatch):
@@ -506,8 +583,14 @@ def test_data_source_prepare_data_logs_prefetch_progress(monkeypatch):
     source.prepare_data(["600000.XSHG", "000001.XSHE"])
 
     assert logged == [
-        ("Baostock prefetch progress: {}/{} {}", (1, 2, "600000.XSHG")),
-        ("Baostock prefetch progress: {}/{} {}", (2, 2, "000001.XSHE")),
+        (
+            "Baostock prefetch progress: {}/{} {} {}",
+            (1, 2, "600000.XSHG", "downloaded"),
+        ),
+        (
+            "Baostock prefetch progress: {}/{} {} {}",
+            (2, 2, "000001.XSHE", "downloaded"),
+        ),
     ]
 
 
@@ -546,13 +629,16 @@ def test_data_source_prepare_data_uses_single_baostock_session(monkeypatch, tmp_
                     "high": "11",
                     "low": "9",
                     "close": "10.5",
+                    "preclose": "10",
                     "volume": "100",
                     "amount": "1050",
                     "turn": "1",
                     "tradestatus": "1",
+                    "pctChg": "5",
                     "peTTM": "8",
                     "pbMRQ": "1",
                     "psTTM": "2",
+                    "pcfNcfTTM": "3",
                     "isST": "0",
                 }
             ]
@@ -579,6 +665,272 @@ def test_data_source_prepare_data_uses_single_baostock_session(monkeypatch, tmp_
     assert calls["logout"] == 1
     assert calls["daily"] == 2
     assert calls["financial"] > 2
+
+
+def test_data_source_prepare_data_skips_complete_cache_without_login(monkeypatch, tmp_path):
+    from rqalpha.mod.rqalpha_mod_baostock import data_source as baostock_data_source
+
+    source = BaostockDataSource.__new__(BaostockDataSource)
+    source._adjustflag = "2"
+    source._start_date = "2026-01-01"
+    source._end_date = "2026-01-31"
+    source._financial_tables = ("profit",)
+    source._prefetch_workers = 2
+    source._cache = BaostockCache(tmp_path)
+    source.get_trading_calendars = lambda: {
+        TRADING_CALENDAR_TYPE.CN_STOCK: pd.DatetimeIndex(["2026-01-05"])
+    }
+    source._cache.write_daily(
+        "600000.XSHG",
+        "2",
+        pd.DataFrame(
+            [
+                {
+                    "date": "2026-01-05",
+                    "code": "sh.600000",
+                    "open": "10",
+                    "high": "11",
+                    "low": "9",
+                    "close": "10.5",
+                    "preclose": "10",
+                    "volume": "100",
+                    "amount": "1050",
+                    "turn": "1",
+                    "tradestatus": "1",
+                    "pctChg": "5",
+                    "peTTM": "8",
+                    "pbMRQ": "1",
+                    "psTTM": "2",
+                    "pcfNcfTTM": "3",
+                    "isST": "0",
+                }
+            ]
+        ),
+    )
+    source._cache.write_financial(
+        "600000.XSHG",
+        "profit",
+        pd.DataFrame(
+            {
+                "order_book_id": ["600000.XSHG"] * 5,
+                "year": [2025, 2025, 2025, 2025, 2026],
+                "quarter": [1, 2, 3, 4, 1],
+            }
+        ),
+    )
+    logged = []
+
+    monkeypatch.setattr(
+        baostock_data_source,
+        "_baostock_session",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("complete prefetch cache should not login")
+        ),
+    )
+    monkeypatch.setattr(
+        baostock_data_source,
+        "user_system_log",
+        SimpleNamespace(info=lambda message, *args: logged.append((message, args))),
+        raising=False,
+    )
+
+    source.prepare_data(["600000.XSHG"])
+
+    assert logged == [
+        (
+            "Baostock prefetch progress: {}/{} {} {}",
+            (1, 1, "600000.XSHG", "cached"),
+        )
+    ]
+
+
+def test_data_source_prepare_data_starts_at_listed_date_for_prefetch(tmp_path):
+    source = BaostockDataSource.__new__(BaostockDataSource)
+    source._adjustflag = "2"
+    source._start_date = "2023-01-01"
+    source._end_date = "2025-12-31"
+    source._financial_tables = ("profit",)
+    source._prefetch_workers = 1
+    source.get_trading_calendars = lambda: {
+        TRADING_CALENDAR_TYPE.CN_STOCK: pd.DatetimeIndex(["2024-07-01"])
+    }
+    source.get_instruments = lambda symbols: [
+        SimpleNamespace(
+            order_book_id="001289.XSHE",
+            listed_date=date(2024, 7, 1),
+        )
+    ]
+
+    class FakeCache:
+        def has_daily_range(self, *args, **kwargs):
+            return False
+
+    captured = {}
+    source._cache = FakeCache()
+    source._run_prefetch_serial = (
+        lambda tasks, completed, total: captured.setdefault("tasks", tasks)
+    )
+
+    source.prepare_data(["001289.XSHE"])
+
+    task = captured["tasks"][0]
+    assert task["start_date"] == "2024-07-01"
+    assert task["year_quarters"] == [
+        (2024, 3),
+        (2024, 4),
+        (2025, 1),
+        (2025, 2),
+        (2025, 3),
+        (2025, 4),
+    ]
+
+
+def test_data_source_prepare_data_uses_parallel_executor(monkeypatch, tmp_path):
+    from rqalpha.mod.rqalpha_mod_baostock import data_source as baostock_data_source
+
+    source = BaostockDataSource.__new__(BaostockDataSource)
+    source._adjustflag = "2"
+    source._start_date = "2026-01-01"
+    source._end_date = "2026-01-31"
+    source._financial_tables = ()
+    source._prefetch_workers = 2
+    source._cache = BaostockCache(tmp_path)
+    source.get_trading_calendars = lambda: {
+        TRADING_CALENDAR_TYPE.CN_STOCK: pd.DatetimeIndex(["2026-01-05"])
+    }
+    captured = {"max_workers": None, "tasks": []}
+    logged = []
+
+    class FakeFuture:
+        def __init__(self, value):
+            self.value = value
+
+        def result(self):
+            return self.value
+
+    class FakeExecutor:
+        def __init__(self, max_workers):
+            captured["max_workers"] = max_workers
+
+        def submit(self, fn, task):
+            captured["tasks"].append(task)
+            return FakeFuture(fn(task))
+
+        def shutdown(self, wait=True, cancel_futures=False):
+            pass
+
+    monkeypatch.setattr(baostock_data_source, "ProcessPoolExecutor", FakeExecutor)
+    monkeypatch.setattr(
+        baostock_data_source,
+        "as_completed",
+        lambda futures: list(futures),
+    )
+    monkeypatch.setattr(
+        baostock_data_source,
+        "_prefetch_symbol_worker",
+        lambda task: task["order_book_id"],
+    )
+    monkeypatch.setattr(
+        baostock_data_source,
+        "user_system_log",
+        SimpleNamespace(info=lambda message, *args: logged.append((message, args))),
+        raising=False,
+    )
+
+    source.prepare_data(["600000.XSHG", "000001.XSHE"])
+
+    assert captured["max_workers"] == 2
+    assert [task["order_book_id"] for task in captured["tasks"]] == [
+        "600000.XSHG",
+        "000001.XSHE",
+    ]
+    assert logged == [
+        (
+            "Baostock prefetch progress: {}/{} {} {}",
+            (1, 2, "600000.XSHG", "downloaded"),
+        ),
+        (
+            "Baostock prefetch progress: {}/{} {} {}",
+            (2, 2, "000001.XSHE", "downloaded"),
+        ),
+    ]
+
+
+def test_data_source_parallel_prefetch_logs_futures_as_completed(monkeypatch, tmp_path):
+    from rqalpha.mod.rqalpha_mod_baostock import data_source as baostock_data_source
+
+    source = BaostockDataSource.__new__(BaostockDataSource)
+    source._adjustflag = "2"
+    source._start_date = "2026-01-01"
+    source._end_date = "2026-01-31"
+    source._financial_tables = ()
+    source._prefetch_workers = 2
+    source._cache = BaostockCache(tmp_path)
+    source.get_trading_calendars = lambda: {
+        TRADING_CALENDAR_TYPE.CN_STOCK: pd.DatetimeIndex(["2026-01-05"])
+    }
+    logged = []
+    shutdowns = []
+
+    class FakeFuture:
+        def __init__(self, task):
+            self.task = task
+
+        def result(self):
+            return self.task["order_book_id"]
+
+    class FakeExecutor:
+        def __init__(self, max_workers):
+            self.max_workers = max_workers
+
+        def submit(self, fn, task):
+            return FakeFuture(task)
+
+        def shutdown(self, wait=True, cancel_futures=False):
+            shutdowns.append((wait, cancel_futures))
+
+    monkeypatch.setattr(baostock_data_source, "ProcessPoolExecutor", FakeExecutor)
+    monkeypatch.setattr(
+        baostock_data_source,
+        "as_completed",
+        lambda futures: list(reversed(list(futures))),
+    )
+    monkeypatch.setattr(
+        baostock_data_source,
+        "user_system_log",
+        SimpleNamespace(info=lambda message, *args: logged.append((message, args))),
+        raising=False,
+    )
+
+    source.prepare_data(["600000.XSHG", "000001.XSHE"])
+
+    assert logged == [
+        (
+            "Baostock prefetch progress: {}/{} {} {}",
+            (1, 2, "000001.XSHE", "downloaded"),
+        ),
+        (
+            "Baostock prefetch progress: {}/{} {} {}",
+            (2, 2, "600000.XSHG", "downloaded"),
+        ),
+    ]
+    assert shutdowns == [(True, False)]
+
+
+def test_data_source_caps_prefetch_workers(monkeypatch):
+    from rqalpha.mod.rqalpha_mod_baostock import data_source as baostock_data_source
+
+    warnings = []
+    monkeypatch.setattr(
+        baostock_data_source,
+        "user_system_log",
+        SimpleNamespace(warn=lambda message, *args: warnings.append((message, args))),
+        raising=False,
+    )
+    assert baostock_data_source._normalize_prefetch_workers(9) == 4
+    assert warnings == [
+        ("Baostock prefetch_workers {} is too high, capped to {}", (9, 4))
+    ]
 
 
 def test_baostock_mod_prefetches_configured_symbols(monkeypatch, tmp_path):

@@ -9,10 +9,11 @@ __config__ = {
     "start_date": "2010-01-01",
     "end_date": None,
     "prefetch": False,
+    "prefetch_workers": 2,
     "symbols": [],
     "index_symbols": [],
     "runtime_fetch": True,
-    "financial_tables": ["profit", "balance", "growth", "cash_flow", "dupont"],
+    "financial_tables": ["profit", "balance", "growth", "cash_flow", "dupont", "operation"],
 }
 
 

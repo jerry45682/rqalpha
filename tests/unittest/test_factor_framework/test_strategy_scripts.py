@@ -19,6 +19,41 @@ def test_strategy_scripts_import_smoke():
     assert export_result_pickle.__name__ == "export_result_pickle"
 
 
+def test_init_schedules_weekly_rebalance(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    calls = []
+    fake_scheduler = SimpleNamespace(
+        run_weekly=lambda func, tradingday, time_rule: calls.append(
+            ("weekly", func, tradingday, time_rule)
+        ),
+        run_monthly=lambda func, tradingday, time_rule: calls.append(
+            ("monthly", func, tradingday, time_rule)
+        ),
+    )
+    monkeypatch.setattr("rqalpha.api.scheduler", fake_scheduler, raising=False)
+    monkeypatch.setattr(
+        "rqalpha.api.market_open", lambda minute=0: ("open", minute), raising=False
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "load_config",
+        lambda path=None: {"rebalance": {"frequency": "weekly", "tradingday": 1}},
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "logger",
+        SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+
+    context = SimpleNamespace(factor_config_path="config.yaml")
+
+    multi_factor_strategy.init(context)
+
+    assert context.factor_config["rebalance"]["frequency"] == "weekly"
+    assert calls == [("weekly", multi_factor_strategy.rebalance, 1, ("open", 1))]
+
+
 def test_resolve_stock_pool_prefers_configured_symbols(monkeypatch):
     from rqalpha_factor_framework.strategies import multi_factor_strategy
 
@@ -104,7 +139,57 @@ def test_resolve_stock_pool_falls_back_to_baostock_components(monkeypatch):
 def test_history_fields_include_baostock_ps_ttm():
     from rqalpha_factor_framework.strategies import multi_factor_strategy
 
+    assert "datetime" in multi_factor_strategy.HISTORY_FIELDS
     assert "psTTM" in multi_factor_strategy.HISTORY_FIELDS
+    assert "preclose" in multi_factor_strategy.HISTORY_FIELDS
+    assert "pctChg" in multi_factor_strategy.HISTORY_FIELDS
+    assert "pcfNcfTTM" in multi_factor_strategy.HISTORY_FIELDS
+
+
+def test_fetch_daily_data_filters_after_signal_date(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    dates = pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-05"])
+    frame = pd.DataFrame(
+        {
+            "datetime": dates,
+            "close": [10.0, 11.0, 99.0],
+            "amount": [100.0, 100.0, 999.0],
+        }
+    )
+    captured = {}
+
+    def fake_history_bars(
+        order_book_id,
+        bar_count,
+        frequency,
+        fields,
+        skip_suspended=True,
+        include_now=False,
+        adjust_type="pre",
+    ):
+        captured["bar_count"] = bar_count
+        captured["fields"] = fields
+        captured["include_now"] = include_now
+        return frame.to_records(index=False)
+
+    monkeypatch.setattr(multi_factor_strategy, "history_bars", fake_history_bars)
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "logger",
+        SimpleNamespace(warning=lambda *args, **kwargs: None),
+    )
+
+    result = multi_factor_strategy._fetch_daily_data(
+        ["600000.XSHG"], as_of_date=pd.Timestamp("2026-01-02")
+    )
+
+    daily = result["600000.XSHG"]
+    assert captured["bar_count"] == multi_factor_strategy.HISTORY_BAR_COUNT + 1
+    assert "datetime" in captured["fields"]
+    assert captured["include_now"] is False
+    assert daily["close"].tolist() == [10.0, 11.0]
+    assert daily["date"].max() == pd.Timestamp("2026-01-02")
 
 
 def test_bars_to_frame_converts_numeric_datetime():
@@ -504,6 +589,32 @@ def test_resolve_financial_data_uses_configured_financial_tables(monkeypatch):
     assert captured["prepare_tables"] == ["profit"]
     assert captured["get_tables"] == ["profit"]
     assert set(result["600000.XSHG"]) == {"profit"}
+
+
+def test_resolve_financial_data_filters_supplied_tables_by_signal_date():
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    context = SimpleNamespace(
+        factor_config={"data": {"financial_tables": ["profit"]}},
+        financial_data={
+            "600000.XSHG": {
+                "profit": pd.DataFrame(
+                    {
+                        "pubDate": ["2026-01-02", "2026-01-05"],
+                        "roe": [0.10, 0.99],
+                    }
+                )
+            }
+        },
+    )
+
+    result = multi_factor_strategy._resolve_financial_data(
+        context,
+        ["600000.XSHG"],
+        as_of_date=pd.Timestamp("2026-01-02"),
+    )
+
+    assert result["600000.XSHG"]["profit"]["roe"].tolist() == [0.10]
 
 
 def test_rebalance_filters_empty_financial_categories_after_coverage(monkeypatch):
@@ -1054,6 +1165,145 @@ def test_build_targets_applies_market_timing_exposure_and_stock_cap(monkeypatch)
     assert targets == {"000001.XSHE": 0.2, "000002.XSHE": 0.2}
 
 
+def test_resolve_total_exposure_filters_after_signal_date(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    dates = pd.bdate_range("2025-01-01", periods=252)
+    closes = [100.0] * 251 + [1.0]
+    captured = {}
+
+    def fake_history_bars(
+        order_book_id,
+        bar_count,
+        frequency,
+        fields,
+        skip_suspended=True,
+        include_now=False,
+        adjust_type="pre",
+    ):
+        captured["bar_count"] = bar_count
+        captured["fields"] = fields
+        captured["include_now"] = include_now
+        return pd.DataFrame({"datetime": dates, "close": closes})
+
+    def fake_market_timing_exposure(close, **kwargs):
+        captured["latest_close"] = close.iloc[-1]
+        return 0.75
+
+    monkeypatch.setattr(multi_factor_strategy, "history_bars", fake_history_bars)
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "market_timing_exposure",
+        fake_market_timing_exposure,
+    )
+
+    result = multi_factor_strategy._resolve_total_exposure(
+        {
+            "risk": {
+                "market_timing": {
+                    "enabled": True,
+                    "index": "000300.XSHG",
+                    "ma120_exposure": 0.6,
+                    "ma250_exposure": 0.3,
+                    "full_exposure": 1.0,
+                }
+            }
+        },
+        as_of_date=dates[-2],
+    )
+
+    assert result == 0.75
+    assert captured["bar_count"] == 251
+    assert captured["fields"] == ["datetime", "close"]
+    assert captured["include_now"] is False
+    assert captured["latest_close"] == 100.0
+
+
+def test_build_targets_applies_industry_weight_cap(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    scored = pd.DataFrame(
+        {"score": [3.0, 2.0, 1.0]},
+        index=["000001.XSHE", "000002.XSHE", "000003.XSHE"],
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "_resolve_total_exposure",
+        lambda config: 0.9,
+    )
+
+    targets = multi_factor_strategy._build_targets(
+        scored,
+        current_positions=[],
+        config={
+            "portfolio": {
+                "holding_count": 3,
+                "buffer_count": 3,
+                "weighting": "equal",
+            },
+            "risk": {
+                "max_industry_weight": 0.4,
+                "market_timing": {"enabled": False},
+            },
+        },
+        industry_map={
+            "000001.XSHE": "bank",
+            "000002.XSHE": "bank",
+            "000003.XSHE": "tech",
+        },
+    )
+
+    assert targets == {
+        "000001.XSHE": 0.2,
+        "000002.XSHE": 0.2,
+        "000003.XSHE": 0.3,
+    }
+
+
+def test_resolve_industry_map_fetches_factor_store_cache(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    captured = {}
+
+    class FakeStore:
+        def __init__(self, cache_dir, client=None):
+            captured["cache_dir"] = cache_dir
+            captured["client"] = client
+
+        def get_industry_map(self, stock_pool, as_of_date):
+            captured["stock_pool"] = list(stock_pool)
+            captured["as_of_date"] = as_of_date
+            return {"600000.XSHG": "bank"}
+
+    monkeypatch.setattr(multi_factor_strategy, "FactorStore", FakeStore)
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "BaostockClient",
+        lambda adjustflag="2": SimpleNamespace(adjustflag=adjustflag),
+    )
+
+    context = SimpleNamespace(
+        now=pd.Timestamp("2026-04-01"),
+        factor_config={
+            "data": {
+                "cache_dir": "cache",
+                "runtime_fetch_industry": True,
+                "adjustflag": "2",
+            },
+        },
+    )
+
+    result = multi_factor_strategy._resolve_industry_map(
+        context, ["600000.XSHG"]
+    )
+
+    assert captured["cache_dir"] == "cache"
+    assert captured["client"].adjustflag == "2"
+    assert captured["stock_pool"] == ["600000.XSHG"]
+    assert captured["as_of_date"] == pd.Timestamp("2026-03-31")
+    assert result == {"600000.XSHG": "bank"}
+
+
 def test_build_rqalpha_config_sets_factor_config_path():
     from rqalpha_factor_framework.backtest.run_backtest import build_rqalpha_config
 
@@ -1087,7 +1337,8 @@ def test_build_rqalpha_config_passes_index_symbols_for_prefetch(tmp_path):
         "stock_pool:\n"
         "  symbols: []\n"
         "data:\n"
-        "  prefetch: true\n",
+        "  prefetch: true\n"
+        "  prefetch_workers: 3\n",
         encoding="utf-8",
     )
 
@@ -1095,6 +1346,7 @@ def test_build_rqalpha_config_passes_index_symbols_for_prefetch(tmp_path):
 
     assert config["mod"]["baostock"]["symbols"] == []
     assert config["mod"]["baostock"]["index_symbols"] == ["000300.XSHG"]
+    assert config["mod"]["baostock"]["prefetch_workers"] == 3
 
 
 def test_build_rqalpha_config_uses_env_bundle_path_when_config_is_null(

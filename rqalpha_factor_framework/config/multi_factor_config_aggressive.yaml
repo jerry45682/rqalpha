@@ -3,7 +3,7 @@ stock_pool:
   symbols:
 
 rebalance:
-  frequency: monthly
+  frequency: weekly
   tradingday: 1
 
 portfolio:
@@ -63,23 +63,25 @@ risk:
 data:
   cache_dir: .rqalpha_factor_cache
   adjustflag: "2"
-  start_date: "2024-01-01"
+  start_date: "2023-01-01"
   end_date:
   prefetch: true
   runtime_fetch: true
   runtime_fetch_financial: false
+  runtime_fetch_industry: true
   financial_tables:
     - profit
     - balance
     - growth
     - cash_flow
     - dupont
+    - operation
 
 backtest:
-  start_date: "2025-01-03"
+  start_date: "2024-01-03"
   end_date: "2025-12-26"
   frequency: 1d
   benchmark: 000300.XSHG
   initial_cash: 1000000
   data_bundle_path:
-  result_path: rqalpha_factor_framework/backtest/multi_factor_result_aggressive.pkl
+  result_path: rqalpha_factor_framework/backtest/multi_factor_result_aggressive_weekly.pkl

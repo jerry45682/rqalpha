@@ -15,10 +15,16 @@ FACTOR_METADATA = {
     "pe_ttm": FactorMeta("pe_ttm", "valuation", LOWER_BETTER),
     "pb": FactorMeta("pb", "valuation", LOWER_BETTER),
     "ps_ttm": FactorMeta("ps_ttm", "valuation", LOWER_BETTER),
+    "pcf_ncf_ttm": FactorMeta("pcf_ncf_ttm", "valuation", LOWER_BETTER),
     "roe": FactorMeta("roe", "quality", HIGHER_BETTER),
     "roa": FactorMeta("roa", "quality", HIGHER_BETTER),
     "gross_margin": FactorMeta("gross_margin", "quality", HIGHER_BETTER),
     "debt_to_asset": FactorMeta("debt_to_asset", "quality", LOWER_BETTER),
+    "asset_turnover": FactorMeta("asset_turnover", "quality", HIGHER_BETTER),
+    "inventory_turnover": FactorMeta("inventory_turnover", "quality", HIGHER_BETTER),
+    "receivables_turnover": FactorMeta(
+        "receivables_turnover", "quality", HIGHER_BETTER
+    ),
     "revenue_growth_yoy": FactorMeta("revenue_growth_yoy", "growth", HIGHER_BETTER),
     "net_profit_growth_yoy": FactorMeta("net_profit_growth_yoy", "growth", HIGHER_BETTER),
     "operating_cashflow_growth_yoy": FactorMeta(
