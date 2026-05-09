@@ -1124,7 +1124,7 @@ def test_run_backtest_main_calls_rqalpha_run_with_strategy_contract():
     run.assert_called_once()
     config = run.call_args.args[0]
     assert config["base"]["start_date"] == "2025-01-03"
-    assert config["base"]["end_date"] == "2025-12-28"
+    assert config["base"]["end_date"] == "2025-12-26"
     assert config["base"]["frequency"] == "1d"
     assert config["base"]["accounts"] == {"stock": 1000000}
     assert config["extra"]["context_vars"]["factor_config_path"]

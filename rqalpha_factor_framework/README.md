@@ -65,6 +65,18 @@ rqalpha_factor_framework/backtest/multi_factor_result.pkl
 .\.venv\Scripts\python.exe -c "from rqalpha_factor_framework.reports.performance_report import export_result_pickle; print(export_result_pickle('rqalpha_factor_framework/backtest/multi_factor_result.pkl'))"
 ```
 
+生成交互式 HTML 报告：
+
+```powershell
+.\.venv\Scripts\python.exe -m rqalpha_factor_framework.reports.interactive_report rqalpha_factor_framework/backtest/multi_factor_result.pkl
+```
+
+生成激进模板回测报告：
+
+```powershell
+.\.venv\Scripts\python.exe -m rqalpha_factor_framework.reports.interactive_report rqalpha_factor_framework/backtest/multi_factor_result_aggressive.pkl -o rqalpha_factor_framework/backtest/multi_factor_result_aggressive_report.html
+```
+
 ## 测试
 
 ```powershell

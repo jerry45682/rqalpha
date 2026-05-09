@@ -535,7 +535,8 @@ def _score_log_message(order_book_id, score_row, config):
 
 def rebalance(context, bar_dict):
     config = context.factor_config
-    stock_pool = _resolve_stock_pool(config, date=context.now.date())
+    now = getattr(context, "now", None)
+    stock_pool = _resolve_stock_pool(config, date=now.date() if now is not None else None)
     logger.info("stock pool size: {}".format(len(stock_pool)))
 
     daily_data = _fetch_daily_data(stock_pool)
