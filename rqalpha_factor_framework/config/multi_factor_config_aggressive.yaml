@@ -7,9 +7,9 @@ rebalance:
   tradingday: 1
 
 portfolio:
-  holding_count: 20
-  buffer_count: 50
-  weighting: equal
+  holding_count: 10
+  buffer_count: 20
+  weighting: score
 
 factors:
   enabled_categories:
@@ -22,14 +22,14 @@ factors:
     - liquidity
     - technical
   category_weights:
-    valuation: 0.15
-    quality: 0.20
-    growth: 0.20
-    momentum: 0.15
-    reversal: 0.05
-    risk: 0.10
+    valuation: 0.05
+    quality: 0.10
+    growth: 0.30
+    momentum: 0.25
+    reversal: 0.00
+    risk: 0.05
     liquidity: 0.05
-    technical: 0.10
+    technical: 0.20
   factor_weights: {}
 
 scoring:
@@ -44,20 +44,20 @@ scoring:
 filters:
   exclude_st: true
   exclude_suspended: true
-  min_listed_days: 180
-  min_avg_amount_20: 30000000
-  require_positive_pe_pb: true
+  min_listed_days: 90
+  min_avg_amount_20: 10000000
+  require_positive_pe_pb: false
   skip_limit_up_buy: true
   skip_limit_down_sell: true
 
 risk:
-  max_stock_weight: 0.10
-  max_industry_weight: 0.25
+  max_stock_weight: 0.40
+  max_industry_weight: 0.60
   market_timing:
     enabled: true
     index: 000300.XSHG
-    ma120_exposure: 0.50
-    ma250_exposure: 0.30
+    ma120_exposure: 0.80
+    ma250_exposure: 0.60
     full_exposure: 1.00
 
 data:
@@ -82,4 +82,4 @@ backtest:
   benchmark: 000300.XSHG
   initial_cash: 1000000
   data_bundle_path:
-  result_path: rqalpha_factor_framework/backtest/multi_factor_result.pkl
+  result_path: rqalpha_factor_framework/backtest/multi_factor_result_aggressive.pkl

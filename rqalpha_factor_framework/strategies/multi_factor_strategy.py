@@ -63,12 +63,36 @@ def init(context):
     logger.info("factor framework strategy initialized")
 
 
-def _resolve_stock_pool(config):
+def _resolve_stock_pool(config, date=None):
     stock_pool = config["stock_pool"]
     symbols = stock_pool.get("symbols") or []
     if symbols:
         return _filter_stock_pool_to_bundle(list(symbols))
-    return _filter_stock_pool_to_bundle(list(index_components(stock_pool["index"])))
+    return _filter_stock_pool_to_bundle(
+        list(_resolve_index_components(stock_pool["index"], date=date))
+    )
+
+
+def _resolve_index_components(index_order_book_id, date=None):
+    try:
+        return index_components(index_order_book_id)
+    except RuntimeError as exc:
+        if "rqdatac is not initialized" not in str(exc):
+            raise
+        logger.warning(
+            "rqdatac is not initialized; using baostock index components for {}".format(
+                index_order_book_id
+            )
+        )
+        return _fetch_baostock_index_components(index_order_book_id, date=date)
+
+
+def _fetch_baostock_index_components(index_order_book_id, date=None):
+    from rqalpha.mod.rqalpha_mod_baostock.data_source import (
+        fetch_baostock_index_components,
+    )
+
+    return fetch_baostock_index_components(index_order_book_id, date=date)
 
 
 def _filter_stock_pool_to_bundle(symbols):
@@ -511,7 +535,7 @@ def _score_log_message(order_book_id, score_row, config):
 
 def rebalance(context, bar_dict):
     config = context.factor_config
-    stock_pool = _resolve_stock_pool(config)
+    stock_pool = _resolve_stock_pool(config, date=context.now.date())
     logger.info("stock pool size: {}".format(len(stock_pool)))
 
     daily_data = _fetch_daily_data(stock_pool)

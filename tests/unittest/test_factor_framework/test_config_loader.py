@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from rqalpha_factor_framework.config.loader import load_config
@@ -79,7 +81,7 @@ def test_load_default_config_has_required_sections():
         "dupont",
     ]
     assert config["backtest"]["start_date"] == "2025-01-03"
-    assert config["backtest"]["end_date"] == "2025-12-28"
+    assert config["backtest"]["end_date"] == "2025-12-26"
     assert config["backtest"]["frequency"] == "1d"
     assert config["backtest"]["benchmark"] == "000300.XSHG"
     assert config["backtest"]["initial_cash"] == 1000000
@@ -235,3 +237,26 @@ def test_load_config_returns_are_isolated_between_calls(tmp_path):
     assert second["factors"]["category_weights"]["valuation"] == 0.15
     assert third["portfolio"]["holding_count"] == 20
     assert third["factors"]["category_weights"]["valuation"] == 0.15
+
+
+def test_load_aggressive_template_config():
+    config = load_config(
+        Path("rqalpha_factor_framework/config/multi_factor_config_aggressive.yaml")
+    )
+
+    assert config["portfolio"]["holding_count"] == 10
+    assert config["portfolio"]["buffer_count"] == 20
+    assert config["portfolio"]["weighting"] == "score"
+    assert config["factors"]["category_weights"]["growth"] == 0.30
+    assert config["factors"]["category_weights"]["momentum"] == 0.25
+    assert config["factors"]["category_weights"]["technical"] == 0.20
+    assert config["filters"]["min_listed_days"] == 90
+    assert config["filters"]["min_avg_amount_20"] == 10000000
+    assert config["filters"]["require_positive_pe_pb"] is False
+    assert config["risk"]["max_stock_weight"] == 0.40
+    assert config["risk"]["max_industry_weight"] == 0.60
+    assert (
+        config["backtest"]["result_path"]
+        == "rqalpha_factor_framework/backtest/multi_factor_result_aggressive.pkl"
+    )
+    assert abs(sum(config["factors"]["category_weights"].values()) - 1.0) < 1e-12

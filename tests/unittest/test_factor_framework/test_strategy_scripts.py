@@ -77,6 +77,30 @@ def test_resolve_stock_pool_filters_symbols_missing_from_bundle(monkeypatch):
     ]
 
 
+def test_resolve_stock_pool_falls_back_to_baostock_components(monkeypatch):
+    from rqalpha_factor_framework.strategies import multi_factor_strategy
+
+    def rqdatac_unavailable(index):
+        raise RuntimeError("rqdatac is not initialized")
+
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "index_components",
+        rqdatac_unavailable,
+    )
+    monkeypatch.setattr(
+        multi_factor_strategy,
+        "_fetch_baostock_index_components",
+        lambda index, date=None: ["600000.XSHG", "000001.XSHE"],
+    )
+
+    config = {"stock_pool": {"index": "000300.XSHG", "symbols": []}}
+
+    assert multi_factor_strategy._resolve_stock_pool(
+        config, date="2025-02-05"
+    ) == ["600000.XSHG", "000001.XSHE"]
+
+
 def test_history_fields_include_baostock_ps_ttm():
     from rqalpha_factor_framework.strategies import multi_factor_strategy
 
