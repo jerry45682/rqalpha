@@ -2,6 +2,7 @@
 from concurrent.futures import as_completed
 from contextlib import contextmanager
 from datetime import date, datetime
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -296,6 +297,7 @@ class BaostockDataSource(BaseDataSource):
         except (AttributeError, KeyError):
             return None
 
+    @lru_cache(maxsize=512)
     def _all_baostock_day_bars(self, order_book_id):
         runtime_fetch = getattr(self, "_runtime_fetch", True)
         if hasattr(self._cache, "load_daily_range"):

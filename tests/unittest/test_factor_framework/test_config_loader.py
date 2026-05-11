@@ -70,7 +70,7 @@ def test_load_default_config_has_required_sections():
     assert config["data"]["adjustflag"] == "2"
     assert config["data"]["start_date"] == "2024-01-01"
     assert config["data"]["end_date"] is None
-    assert config["data"]["prefetch"] is True
+    assert config["data"]["prefetch"] is False
     assert config["data"]["runtime_fetch"] is True
     assert config["data"]["runtime_fetch_financial"] is False
     assert config["data"]["runtime_fetch_industry"] is True

@@ -65,7 +65,7 @@ data:
   adjustflag: "2"
   start_date: "2024-01-01"
   end_date:
-  prefetch: true
+  prefetch: false
   runtime_fetch: true
   runtime_fetch_financial: false
   runtime_fetch_industry: true
