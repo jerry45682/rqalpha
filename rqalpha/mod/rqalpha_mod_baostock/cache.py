@@ -112,11 +112,20 @@ class BaostockCache(object):
         required_columns=None,
         trading_dates=None,
     ):
-        cached = self.read_daily(order_book_id, adjustflag)
-        if _covers_date_range(
-            cached, start_date, end_date, trading_dates
-        ) and _has_required_columns(cached, required_columns):
-            return True
+        # Optimised path: read only the columns needed for cache validation
+        # instead of the full CSV (3000 rows × 17+ cols → 3000 rows × 1-2 cols).
+        path = self.daily_path_for(order_book_id, adjustflag)
+        if path.exists():
+            try:
+                header = pd.read_csv(path, nrows=0)
+                if not _has_required_columns(header, required_columns):
+                    return False
+                cached = pd.read_csv(path, usecols=["date"])
+                return _covers_date_range(
+                    cached, start_date, end_date, trading_dates
+                )
+            except (pd.errors.EmptyDataError, ValueError):
+                pass
 
         legacy = self.read(order_book_id, start_date, end_date, adjustflag)
         return _covers_date_range(
@@ -166,7 +175,14 @@ class BaostockCache(object):
         return merged
 
     def has_financial_quarters(self, order_book_id, table, year_quarters):
-        cached = self.read_financial(order_book_id, table)
+        # Read only year/quarter columns instead of the full financial CSV
+        path = self.financial_path_for(order_book_id, table)
+        if not path.exists():
+            return False
+        try:
+            cached = pd.read_csv(path, usecols=["year", "quarter"])
+        except (ValueError, pd.errors.EmptyDataError):
+            return False
         existing = _existing_quarters(cached)
         return all(
             (int(year), int(quarter)) in existing

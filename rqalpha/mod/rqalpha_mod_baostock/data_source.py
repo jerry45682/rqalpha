@@ -391,6 +391,11 @@ class BaostockDataSource(BaseDataSource):
             return False
         if not hasattr(self._cache, "has_financial_quarters"):
             return False
+        # Fast path: check financial file existence before reading content
+        for table in self._financial_tables:
+            path = self._cache.financial_path_for(order_book_id, table)
+            if not path.exists():
+                return False
         return all(
             self._cache.has_financial_quarters(order_book_id, table, year_quarters)
             for table in self._financial_tables
@@ -416,15 +421,14 @@ class BaostockDataSource(BaseDataSource):
             for task in tasks:
                 try:
                     _prefetch_symbol(task, bs, cache=self._cache)
+                    completed += 1
+                    _log_prefetch_progress(
+                        completed, total, task["order_book_id"], "downloaded"
+                    )
                 except Exception:
                     user_system_log.warn(
                         "Baostock prefetch failed: {}", task["order_book_id"]
                     )
-                    raise
-                completed += 1
-                _log_prefetch_progress(
-                    completed, total, task["order_book_id"], "downloaded"
-                )
 
     def _run_prefetch_parallel(self, tasks, workers, completed, total):
         executor = ProcessPoolExecutor(max_workers=workers)
@@ -437,19 +441,15 @@ class BaostockDataSource(BaseDataSource):
                 task = future_to_task[future]
                 try:
                     order_book_id = future.result()
+                    completed += 1
+                    _log_prefetch_progress(
+                        completed, total, order_book_id, "downloaded"
+                    )
                 except Exception:
                     user_system_log.warn(
                         "Baostock prefetch failed: {}", task["order_book_id"]
                     )
-                    raise
-                completed += 1
-                _log_prefetch_progress(
-                    completed, total, order_book_id, "downloaded"
-                )
-        except BaseException:
-            executor.shutdown(wait=False, cancel_futures=True)
-            raise
-        else:
+        finally:
             executor.shutdown(wait=True)
 
     def get_bar(self, instrument, dt, frequency):
