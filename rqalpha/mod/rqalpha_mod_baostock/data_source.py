@@ -358,9 +358,14 @@ class BaostockDataSource(BaseDataSource):
 
         workers = min(getattr(self, "_prefetch_workers", 1), len(tasks))
         if workers <= 1:
-            self._run_prefetch_serial(tasks, completed, total)
+            failed = self._run_prefetch_serial(tasks, completed, total)
         else:
-            self._run_prefetch_parallel(tasks, workers, completed, total)
+            failed = self._run_prefetch_parallel(tasks, workers, completed, total)
+
+        if failed:
+            user_system_log.warn(
+                "Baostock prefetch finished with {} failures: {}", len(failed), failed
+            )
 
     def _listed_dates_for_symbols(self, symbols):
         if not hasattr(self, "get_instruments"):
@@ -420,6 +425,7 @@ class BaostockDataSource(BaseDataSource):
         }
 
     def _run_prefetch_serial(self, tasks, completed, total):
+        failed = []
         with _baostock_session() as bs:
             for task in tasks:
                 try:
@@ -432,8 +438,11 @@ class BaostockDataSource(BaseDataSource):
                     user_system_log.warn(
                         "Baostock prefetch failed: {}", task["order_book_id"]
                     )
+                    failed.append(task["order_book_id"])
+        return failed
 
     def _run_prefetch_parallel(self, tasks, workers, completed, total):
+        failed = []
         executor = ProcessPoolExecutor(max_workers=workers)
         try:
             future_to_task = {
@@ -452,8 +461,10 @@ class BaostockDataSource(BaseDataSource):
                     user_system_log.warn(
                         "Baostock prefetch failed: {}", task["order_book_id"]
                     )
+                    failed.append(task["order_book_id"])
         finally:
             executor.shutdown(wait=True)
+        return failed
 
     def get_bar(self, instrument, dt, frequency):
         if frequency != "1d":

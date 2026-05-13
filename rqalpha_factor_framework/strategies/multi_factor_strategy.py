@@ -132,7 +132,7 @@ def _resolve_index_components(index_order_book_id, date=None):
 
 
 def _fetch_baostock_index_components(index_order_book_id, date=None):
-    cache_key = str(index_order_book_id)
+    cache_key = "{}_{}".format(index_order_book_id, str(date) if date else "latest")
     if cache_key in _INDEX_COMPONENTS_CACHE:
         return _INDEX_COMPONENTS_CACHE[cache_key]
 
@@ -508,16 +508,16 @@ def _resolve_industry_map(context, stock_pool, as_of_date=None):
         _log_elapsed("resolve_industry_map (supplied)", t0)
         return result
 
-    # Reuse in-memory cache across rebalances (industry classification rarely changes)
+    # Reuse in-memory cache when it fully covers the stock pool.
+    # If there are new stocks not in the cache, fall through to fetch the
+    # complete map and merge — never return a partial mapping.
     cached = getattr(context, "_industry_map_cache", None)
     if cached is not None:
-        subset = {k: v for k, v in cached.items() if k in set(stock_pool)}
         missing = [s for s in stock_pool if s not in cached]
         if not missing:
+            subset = {k: v for k, v in cached.items() if k in set(stock_pool)}
             _log_elapsed("resolve_industry_map (mem-cached)", t0)
             return subset
-        _log_elapsed("resolve_industry_map (mem-cached, {} new stocks)".format(len(missing)), t0)
-        return subset
 
     data_config = getattr(context, "factor_config", {}).get("data", {})
     cache_dir = data_config.get("cache_dir")
@@ -529,7 +529,12 @@ def _resolve_industry_map(context, stock_pool, as_of_date=None):
             as_of_date = _previous_trading_datetime(context)
         try:
             result = store.get_industry_map(stock_pool, as_of_date)
-            context._industry_map_cache = result
+            # Merge into the existing cache so new constituents accumulate
+            if cached is not None:
+                cached.update(result)
+                context._industry_map_cache = cached
+            else:
+                context._industry_map_cache = result
             _log_elapsed("resolve_industry_map (reused store)", t0)
             return result
         except Exception as exc:
@@ -549,7 +554,11 @@ def _resolve_industry_map(context, stock_pool, as_of_date=None):
         as_of_date = _previous_trading_datetime(context)
     try:
         result = store.get_industry_map(stock_pool, as_of_date)
-        context._industry_map_cache = result
+        if cached is not None:
+            cached.update(result)
+            context._industry_map_cache = cached
+        else:
+            context._industry_map_cache = result
         _log_elapsed("resolve_industry_map (new store)", t0)
         return result
     except Exception as exc:

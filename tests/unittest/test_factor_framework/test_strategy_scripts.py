@@ -10,7 +10,7 @@ from rqalpha_factor_framework.config import load_config
 
 
 def test_strategy_scripts_import_smoke():
-    assert load_config()["portfolio"]["holding_count"] == 20
+    assert load_config()["portfolio"]["holding_count"] == 14
 
     from rqalpha_factor_framework.strategies import multi_factor_strategy
     from rqalpha_factor_framework.reports.performance_report import export_result_pickle
@@ -1375,8 +1375,8 @@ def test_run_backtest_main_calls_rqalpha_run_with_strategy_contract():
     assert result == {"ok": True}
     run.assert_called_once()
     config = run.call_args.args[0]
-    assert config["base"]["start_date"] == "2025-01-03"
-    assert config["base"]["end_date"] == "2025-12-26"
+    assert config["base"]["start_date"] == "2025-01-05"
+    assert config["base"]["end_date"] == "2025-12-25"
     assert config["base"]["frequency"] == "1d"
     assert config["base"]["accounts"] == {"stock": 1000000}
     assert config["extra"]["context_vars"]["factor_config_path"]

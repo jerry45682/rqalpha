@@ -1,0 +1,79 @@
+stock_pool:
+  index: 000300.XSHG
+  symbols: null
+rebalance:
+  frequency: monthly
+  tradingday: 1
+portfolio:
+  holding_count: 14
+  buffer_count: 21
+  weighting: score
+factors:
+  enabled_categories:
+  - valuation
+  - quality
+  - growth
+  - momentum
+  - reversal
+  - risk
+  - liquidity
+  - technical
+  category_weights:
+    growth: 0.25841983677200936
+    momentum: 0.16259293923926124
+    quality: 0.2420842227948402
+    valuation: 0.1507372310143189
+    technical: 0.09000996120506444
+    reversal: 0.01965963988131406
+    risk: 0.028129645232895295
+    liquidity: 0.048366523860296495
+  factor_weights: {}
+scoring:
+  missing: median
+  min_factor_coverage: 0.3
+  winsorize_quantiles:
+  - 0.01
+  - 0.99
+  standardize: zscore
+  neutralize: none
+filters:
+  exclude_st: true
+  exclude_suspended: true
+  min_listed_days: 180
+  min_avg_amount_20: 44047790
+  require_positive_pe_pb: true
+  skip_limit_up_buy: true
+  skip_limit_down_sell: true
+risk:
+  max_stock_weight: 0.08961986957687576
+  max_industry_weight: 0.25
+  market_timing:
+    enabled: true
+    index: 000300.XSHG
+    ma120_exposure: 0.5
+    ma250_exposure: 0.3
+    full_exposure: 1.0
+data:
+  cache_dir: .rqalpha_factor_cache
+  adjustflag: '2'
+  start_date: '2024-01-01'
+  end_date: null
+  prefetch: false
+  runtime_fetch: true
+  runtime_fetch_financial: false
+  runtime_fetch_industry: true
+  financial_tables:
+  - profit
+  - balance
+  - growth
+  - cash_flow
+  - dupont
+  - operation
+backtest:
+  start_date: '2025-01-05'
+  end_date: '2025-12-25'
+  frequency: 1d
+  benchmark: 000300.XSHG
+  initial_cash: 1000000
+  data_bundle_path: null
+  result_path: E:\ClaudeWorkspace\rqalpha\cs_branch\rqalpha_factor_framework\backtest\_tune_result.pkl
