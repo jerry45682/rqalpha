@@ -41,6 +41,9 @@ FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow", "dupont", "opera
 INDEX_COMPONENT_QUERIES = {
     "000300.XSHG": "query_hs300_stocks",
     "399300.XSHE": "query_hs300_stocks",
+    "000016.XSHG": "query_sz50_stocks",
+    "000905.XSHG": "query_zz500_stocks",
+    "000852.XSHG": None,  # baostock doesn't have CSI 1000 API — fallback to bundle
 }
 FINANCIAL_FIELD_ALIASES = {
     "profit": {
@@ -544,11 +547,16 @@ def _prefetch_daily_start_date(config_start_date, listed_date):
 
 def _normalize_prefetch_workers(value):
     workers = max(1, int(value if value is not None else 2))
-    if workers > 4:
+    if workers > 12:
         user_system_log.warn(
-            "Baostock prefetch_workers {} is too high, capped to {}", workers, 4
+            "Baostock prefetch_workers {} is too high, capped to {}", workers, 12
         )
-        return 4
+        return 12
+    if workers > 8:
+        user_system_log.warn(
+            "Baostock prefetch_workers {} may hit rate limits; proceed with caution",
+            workers,
+        )
     return workers
 
 

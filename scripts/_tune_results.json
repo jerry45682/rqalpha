@@ -1,0 +1,562 @@
+[
+  {
+    "run": 1,
+    "phase": "EXPLORE",
+    "total_returns": 0.41433874559179684,
+    "annualized_returns": 0.44571317102821273,
+    "sharpe": 1.7536270048503073,
+    "max_drawdown": 0.12855255095728904,
+    "score": 0.7232,
+    "elapsed_s": 91.0,
+    "params": {
+      "holding_count": 13,
+      "weighting": "equal",
+      "buffer_ratio": 2.6123257496397496,
+      "min_avg_amount_20": 26434414,
+      "max_stock_weight": 0.08348161072232342,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.31086380677040293,
+      "momentum": 0.34425265603367255,
+      "quality": 0.08245235604888608,
+      "valuation": 0.14563705510456199,
+      "technical": 0.008073073313978782,
+      "reversal": 0.023694565239254308,
+      "risk": 0.08215069125381824,
+      "liquidity": 0.00287579623542511
+    }
+  },
+  {
+    "run": 2,
+    "phase": "EXPLORE",
+    "total_returns": 0.6171458432148462,
+    "annualized_returns": 0.6670981238057165,
+    "sharpe": 3.097659987496901,
+    "max_drawdown": 0.09158987287638178,
+    "score": 1.2445,
+    "elapsed_s": 98.3,
+    "params": {
+      "holding_count": 16,
+      "weighting": "score",
+      "buffer_ratio": 1.830660933061045,
+      "min_avg_amount_20": 49544950,
+      "max_stock_weight": 0.09172860623459941,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.3588852874761156,
+      "momentum": 0.11133085494820473,
+      "quality": 0.20104180531177976,
+      "valuation": 0.12006065677607124,
+      "technical": 0.06121451774996174,
+      "reversal": 0.08682570859303969,
+      "risk": 0.017435261151007277,
+      "liquidity": 0.04320590799381996
+    }
+  },
+  {
+    "run": 3,
+    "phase": "EXPLORE",
+    "total_returns": 0.7305926806982839,
+    "annualized_returns": 0.7917214245584339,
+    "sharpe": 2.8967735538607235,
+    "max_drawdown": 0.11147158358748134,
+    "score": 1.2426,
+    "elapsed_s": 98.1,
+    "params": {
+      "holding_count": 21,
+      "weighting": "score",
+      "buffer_ratio": 2.4055890470503365,
+      "min_avg_amount_20": 12915909,
+      "max_stock_weight": 0.1594597680040727,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.28231964046589564,
+      "momentum": 0.1182217354245006,
+      "quality": 0.15584494009917066,
+      "valuation": 0.1560391884387051,
+      "technical": 0.11176684170044109,
+      "reversal": 0.062284354445317915,
+      "risk": 0.06259670018071299,
+      "liquidity": 0.050926599245256
+    }
+  },
+  {
+    "run": 4,
+    "phase": "EXPLORE",
+    "total_returns": 0.43150217057125806,
+    "annualized_returns": 0.4643748610323175,
+    "sharpe": 2.1580037533156133,
+    "max_drawdown": 0.10853846881364723,
+    "score": 0.8579,
+    "elapsed_s": 97.7,
+    "params": {
+      "holding_count": 11,
+      "weighting": "equal",
+      "buffer_ratio": 2.6596025111830377,
+      "min_avg_amount_20": 15354748,
+      "max_stock_weight": 0.17829765815227205,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.16928249025674327,
+      "momentum": 0.17203744065188611,
+      "quality": 0.27766090081293654,
+      "valuation": 0.07632595983443552,
+      "technical": 0.08214015498330592,
+      "reversal": 0.06197898408632507,
+      "risk": 0.09735837368125073,
+      "liquidity": 0.0632156956931168
+    }
+  },
+  {
+    "run": 5,
+    "phase": "EXPLORE",
+    "total_returns": 0.6208579422218632,
+    "annualized_returns": 0.6711673819715978,
+    "sharpe": 2.278319188305853,
+    "max_drawdown": 0.1669645770944534,
+    "score": 0.9857,
+    "elapsed_s": 101.2,
+    "params": {
+      "holding_count": 12,
+      "weighting": "equal",
+      "buffer_ratio": 2.3012098155445617,
+      "min_avg_amount_20": 26428983,
+      "max_stock_weight": 0.07451037406428926,
+      "market_timing": false
+    },
+    "weights": {
+      "growth": 0.1349106757248891,
+      "momentum": 0.3059146351875337,
+      "quality": 0.2394603801293365,
+      "valuation": 0.08770118732689264,
+      "technical": 0.07570022865050041,
+      "reversal": 0.07174173315627318,
+      "risk": 0.007834858233859309,
+      "liquidity": 0.0767363015907152
+    }
+  },
+  {
+    "run": 6,
+    "phase": "EXPLOIT",
+    "total_returns": 0.49353643563975,
+    "annualized_returns": 0.5319413535540782,
+    "sharpe": 2.490229500476798,
+    "max_drawdown": 0.09958341091358534,
+    "score": 0.9931,
+    "elapsed_s": 86.2,
+    "params": {
+      "holding_count": 14,
+      "weighting": "equal",
+      "buffer_ratio": 1.9265419484602029,
+      "min_avg_amount_20": 29858578,
+      "max_stock_weight": 0.057067456313710185,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.2654045819892074,
+      "momentum": 0.1432738574643192,
+      "quality": 0.05601111411375822,
+      "valuation": 0.10245747104873323,
+      "technical": 0.2019810027521968,
+      "reversal": 0.042914868855816066,
+      "risk": 0.11814185802182013,
+      "liquidity": 0.06981524575414899
+    }
+  },
+  {
+    "run": 7,
+    "phase": "EXPLOIT",
+    "total_returns": 0.5705626663139889,
+    "annualized_returns": 0.6160836296515724,
+    "sharpe": 2.509950854584464,
+    "max_drawdown": 0.10228091949312705,
+    "score": 1.0406,
+    "elapsed_s": 84.2,
+    "params": {
+      "holding_count": 14,
+      "weighting": "score",
+      "buffer_ratio": 1.7000337167084627,
+      "min_avg_amount_20": 38973210,
+      "max_stock_weight": 0.07565394267628672,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.21870254063409345,
+      "momentum": 0.2597399811837419,
+      "quality": 0.19152159369963045,
+      "valuation": 0.04590007513135524,
+      "technical": 0.0742241428543984,
+      "reversal": 0.0017838870851806944,
+      "risk": 0.12764508994219656,
+      "liquidity": 0.08048268946940329
+    }
+  },
+  {
+    "run": 8,
+    "phase": "EXPLOIT",
+    "total_returns": 0.5625157848410285,
+    "annualized_returns": 0.6072808906331773,
+    "sharpe": 2.3379126759047093,
+    "max_drawdown": 0.11120674581862246,
+    "score": 0.9828,
+    "elapsed_s": 96.7,
+    "params": {
+      "holding_count": 23,
+      "weighting": "score",
+      "buffer_ratio": 2.1496421011629403,
+      "min_avg_amount_20": 31387171,
+      "max_stock_weight": 0.09755528419928938,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.13538139367221305,
+      "momentum": 0.17211443981386226,
+      "quality": 0.22198042304915042,
+      "valuation": 0.24578147897253544,
+      "technical": 0.08433339959627524,
+      "reversal": 0.03228247139405657,
+      "risk": 0.01561070399121817,
+      "liquidity": 0.09251568951068889
+    }
+  },
+  {
+    "run": 9,
+    "phase": "EXPLOIT",
+    "total_returns": 0.3853195476566973,
+    "annualized_returns": 0.4141934479219087,
+    "sharpe": 1.8372672279119433,
+    "max_drawdown": 0.10437266907604258,
+    "score": 0.7374,
+    "elapsed_s": 92.6,
+    "params": {
+      "holding_count": 25,
+      "weighting": "score",
+      "buffer_ratio": 2.4884741242719945,
+      "min_avg_amount_20": 31677810,
+      "max_stock_weight": 0.06882284582254827,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.10298033679282943,
+      "momentum": 0.20827021197163514,
+      "quality": 0.1851054949806796,
+      "valuation": 0.2711320053877978,
+      "technical": 0.07580772244470281,
+      "reversal": 0.02319555494164645,
+      "risk": 0.08206114225902619,
+      "liquidity": 0.05144753122168255
+    }
+  },
+  {
+    "run": 10,
+    "phase": "EXPLOIT",
+    "total_returns": 0.7029251536259458,
+    "annualized_returns": 0.7612791373195154,
+    "sharpe": 3.052326143902204,
+    "max_drawdown": 0.08778947424334008,
+    "score": 1.2788,
+    "elapsed_s": 91.0,
+    "params": {
+      "holding_count": 14,
+      "weighting": "score",
+      "buffer_ratio": 1.5032330675271397,
+      "min_avg_amount_20": 44047790,
+      "max_stock_weight": 0.08961986957687576,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.3127744517783088,
+      "momentum": 0.17015088522943178,
+      "quality": 0.20845652126334982,
+      "valuation": 0.06355961814783642,
+      "technical": 0.058234881403594604,
+      "reversal": 0.07605148248381997,
+      "risk": 0.06820547214910319,
+      "liquidity": 0.04256668754455539
+    }
+  },
+  {
+    "run": 11,
+    "phase": "EXPLOIT",
+    "total_returns": 0.7928869341018219,
+    "annualized_returns": 0.8603752550123542,
+    "sharpe": 2.7506937818722315,
+    "max_drawdown": 0.09980525151464889,
+    "score": 1.2354,
+    "elapsed_s": 85.6,
+    "params": {
+      "holding_count": 13,
+      "weighting": "score",
+      "buffer_ratio": 2.391778730300162,
+      "min_avg_amount_20": 33564280,
+      "max_stock_weight": 0.11565319233639225,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.2646744397501341,
+      "momentum": 0.13424790476711299,
+      "quality": 0.120687904082152,
+      "valuation": 0.0708912066071644,
+      "technical": 0.1501802935933226,
+      "reversal": 0.04255060364549435,
+      "risk": 0.1296855851039436,
+      "liquidity": 0.08708206245067596
+    }
+  },
+  {
+    "run": 12,
+    "phase": "EXPLOIT",
+    "total_returns": 0.6021927290154603,
+    "annualized_returns": 0.6507122973506121,
+    "sharpe": 2.7018366467426556,
+    "max_drawdown": 0.10941395781598866,
+    "score": 1.114,
+    "elapsed_s": 88.6,
+    "params": {
+      "holding_count": 19,
+      "weighting": "score",
+      "buffer_ratio": 2.0764734813850962,
+      "min_avg_amount_20": 45865027,
+      "max_stock_weight": 0.18171904474603884,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.32072461377563016,
+      "momentum": 0.10002723288751245,
+      "quality": 0.13925015800088233,
+      "valuation": 0.09536049825346121,
+      "technical": 0.08872972773257301,
+      "reversal": 0.07116353459461496,
+      "risk": 0.1324288235577594,
+      "liquidity": 0.05231541119756644
+    }
+  },
+  {
+    "run": 13,
+    "phase": "EXPLOIT",
+    "total_returns": 0.3100601833038603,
+    "annualized_returns": 0.3326458278692359,
+    "sharpe": 1.646987007677633,
+    "max_drawdown": 0.10033595546053937,
+    "score": 0.6404,
+    "elapsed_s": 87.4,
+    "params": {
+      "holding_count": 18,
+      "weighting": "score",
+      "buffer_ratio": 2.8246595899502145,
+      "min_avg_amount_20": 36597049,
+      "max_stock_weight": 0.12102860892259741,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.06380053645589238,
+      "momentum": 0.15732518135799614,
+      "quality": 0.3256412257312488,
+      "valuation": 0.24126440685982442,
+      "technical": 0.009844178038083058,
+      "reversal": 0.03531619047561444,
+      "risk": 0.10098117199190508,
+      "liquidity": 0.06582710908943568
+    }
+  },
+  {
+    "run": 14,
+    "phase": "EXPLOIT",
+    "total_returns": 0.5615787555478504,
+    "annualized_returns": 0.6062560307652172,
+    "sharpe": 2.5387407949762597,
+    "max_drawdown": 0.10116152905370052,
+    "score": 1.0445,
+    "elapsed_s": 87.6,
+    "params": {
+      "holding_count": 19,
+      "weighting": "score",
+      "buffer_ratio": 2.199807203717966,
+      "min_avg_amount_20": 17254174,
+      "max_stock_weight": 0.07208796262843672,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.3372949341941752,
+      "momentum": 0.18892533627517114,
+      "quality": 0.14218520393816747,
+      "valuation": 0.20999652405145375,
+      "technical": 0.057151273531287274,
+      "reversal": 0.0023769409420017667,
+      "risk": 0.02909797593652901,
+      "liquidity": 0.03297181113121439
+    }
+  },
+  {
+    "run": 15,
+    "phase": "EXPLOIT",
+    "total_returns": 0.5843292725264222,
+    "annualized_returns": 0.6311499698024832,
+    "sharpe": 2.7738841539445027,
+    "max_drawdown": 0.10229008309745106,
+    "score": 1.1273,
+    "elapsed_s": 91.5,
+    "params": {
+      "holding_count": 14,
+      "weighting": "score",
+      "buffer_ratio": 2.1788141452145604,
+      "min_avg_amount_20": 47124543,
+      "max_stock_weight": 0.18492570993667995,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.24332360448074808,
+      "momentum": 0.04123004213495182,
+      "quality": 0.2674847141454022,
+      "valuation": 0.12872537372152992,
+      "technical": 0.14682075739529954,
+      "reversal": 0.060566655550854435,
+      "risk": 0.08211683004776082,
+      "liquidity": 0.029732022523453194
+    }
+  },
+  {
+    "run": 16,
+    "phase": "ROBUST",
+    "total_returns": 0.559608426943329,
+    "annualized_returns": 0.6041011443254798,
+    "sharpe": 2.394000903860083,
+    "max_drawdown": 0.10536328031075773,
+    "score": 0.9992,
+    "elapsed_s": 90.4,
+    "params": {
+      "holding_count": 14,
+      "weighting": "score",
+      "buffer_ratio": 1.5032330675271397,
+      "min_avg_amount_20": 44047790,
+      "max_stock_weight": 0.08961986957687576,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.20489346093087363,
+      "momentum": 0.225225828660289,
+      "quality": 0.1331667910051332,
+      "valuation": 0.17062231861305338,
+      "technical": 0.12483411912040658,
+      "reversal": 0.017278246782024987,
+      "risk": 0.08983118188086907,
+      "liquidity": 0.03414805300735013
+    }
+  },
+  {
+    "run": 17,
+    "phase": "ROBUST",
+    "total_returns": 0.5462787215537137,
+    "annualized_returns": 0.5895274006421494,
+    "sharpe": 2.4044598861692887,
+    "max_drawdown": 0.09593656991384818,
+    "score": 0.9969,
+    "elapsed_s": 87.4,
+    "params": {
+      "holding_count": 14,
+      "weighting": "score",
+      "buffer_ratio": 1.5032330675271397,
+      "min_avg_amount_20": 44047790,
+      "max_stock_weight": 0.08961986957687576,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.18110576885194052,
+      "momentum": 0.20236801776335642,
+      "quality": 0.22261991552250476,
+      "valuation": 0.12919079640952963,
+      "technical": 0.09986699324490066,
+      "reversal": 0.019306790352772125,
+      "risk": 0.06412480063463771,
+      "liquidity": 0.08141691722035815
+    }
+  },
+  {
+    "run": 18,
+    "phase": "ROBUST",
+    "total_returns": 0.4420015046685699,
+    "annualized_returns": 0.4757977186633082,
+    "sharpe": 2.858380810994941,
+    "max_drawdown": 0.08776432735459673,
+    "score": 1.0779,
+    "elapsed_s": 89.8,
+    "params": {
+      "holding_count": 14,
+      "weighting": "score",
+      "buffer_ratio": 1.5032330675271397,
+      "min_avg_amount_20": 44047790,
+      "max_stock_weight": 0.08961986957687576,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.35202427784581214,
+      "momentum": 0.14475663342261838,
+      "quality": 0.1353194275331445,
+      "valuation": 0.06767893492239918,
+      "technical": 0.07547899788069358,
+      "reversal": 0.05858918882472567,
+      "risk": 0.15717207128317084,
+      "liquidity": 0.008980468287435706
+    }
+  },
+  {
+    "run": 19,
+    "phase": "ROBUST",
+    "total_returns": 0.4953477137058857,
+    "annualized_returns": 0.533916868416447,
+    "sharpe": 2.20784300157544,
+    "max_drawdown": 0.09609332736165897,
+    "score": 0.9101,
+    "elapsed_s": 89.3,
+    "params": {
+      "holding_count": 14,
+      "weighting": "score",
+      "buffer_ratio": 1.5032330675271397,
+      "min_avg_amount_20": 44047790,
+      "max_stock_weight": 0.08961986957687576,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.07757951128211807,
+      "momentum": 0.19559866704517367,
+      "quality": 0.24254418660472687,
+      "valuation": 0.16949820193870938,
+      "technical": 0.1689473134432289,
+      "reversal": 0.05940923963330582,
+      "risk": 0.025053015232155175,
+      "liquidity": 0.06136986482058204
+    }
+  },
+  {
+    "run": 20,
+    "phase": "ROBUST",
+    "total_returns": 0.5517094958446485,
+    "annualized_returns": 0.5954640637061213,
+    "sharpe": 2.331872929024159,
+    "max_drawdown": 0.10959422489957282,
+    "score": 0.9754,
+    "elapsed_s": 88.3,
+    "params": {
+      "holding_count": 14,
+      "weighting": "score",
+      "buffer_ratio": 1.5032330675271397,
+      "min_avg_amount_20": 44047790,
+      "max_stock_weight": 0.08961986957687576,
+      "market_timing": true
+    },
+    "weights": {
+      "growth": 0.1840518030953186,
+      "momentum": 0.22474567407043125,
+      "quality": 0.14835355081329757,
+      "valuation": 0.15573258288301867,
+      "technical": 0.1446036248497724,
+      "reversal": 0.03975282480748615,
+      "risk": 0.07000668415561258,
+      "liquidity": 0.03275325532506279
+    }
+  }
+]
