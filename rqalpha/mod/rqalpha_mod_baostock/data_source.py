@@ -2,6 +2,7 @@
 from concurrent.futures import as_completed
 from contextlib import contextmanager
 from datetime import date, datetime
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -40,6 +41,9 @@ FINANCIAL_TABLES = ("profit", "balance", "growth", "cash_flow", "dupont", "opera
 INDEX_COMPONENT_QUERIES = {
     "000300.XSHG": "query_hs300_stocks",
     "399300.XSHE": "query_hs300_stocks",
+    "000016.XSHG": "query_sz50_stocks",
+    "000905.XSHG": "query_zz500_stocks",
+    "000852.XSHG": None,  # baostock doesn't have CSI 1000 API — fallback to bundle
 }
 FINANCIAL_FIELD_ALIASES = {
     "profit": {
@@ -296,6 +300,7 @@ class BaostockDataSource(BaseDataSource):
         except (AttributeError, KeyError):
             return None
 
+    @lru_cache(maxsize=512)
     def _all_baostock_day_bars(self, order_book_id):
         runtime_fetch = getattr(self, "_runtime_fetch", True)
         if hasattr(self._cache, "load_daily_range"):
@@ -353,9 +358,14 @@ class BaostockDataSource(BaseDataSource):
 
         workers = min(getattr(self, "_prefetch_workers", 1), len(tasks))
         if workers <= 1:
-            self._run_prefetch_serial(tasks, completed, total)
+            failed = self._run_prefetch_serial(tasks, completed, total)
         else:
-            self._run_prefetch_parallel(tasks, workers, completed, total)
+            failed = self._run_prefetch_parallel(tasks, workers, completed, total)
+
+        if failed:
+            user_system_log.warn(
+                "Baostock prefetch finished with {} failures: {}", len(failed), failed
+            )
 
     def _listed_dates_for_symbols(self, symbols):
         if not hasattr(self, "get_instruments"):
@@ -389,6 +399,11 @@ class BaostockDataSource(BaseDataSource):
             return False
         if not hasattr(self._cache, "has_financial_quarters"):
             return False
+        # Fast path: check financial file existence before reading content
+        for table in self._financial_tables:
+            path = self._cache.financial_path_for(order_book_id, table)
+            if not path.exists():
+                return False
         return all(
             self._cache.has_financial_quarters(order_book_id, table, year_quarters)
             for table in self._financial_tables
@@ -410,21 +425,24 @@ class BaostockDataSource(BaseDataSource):
         }
 
     def _run_prefetch_serial(self, tasks, completed, total):
+        failed = []
         with _baostock_session() as bs:
             for task in tasks:
                 try:
                     _prefetch_symbol(task, bs, cache=self._cache)
+                    completed += 1
+                    _log_prefetch_progress(
+                        completed, total, task["order_book_id"], "downloaded"
+                    )
                 except Exception:
                     user_system_log.warn(
                         "Baostock prefetch failed: {}", task["order_book_id"]
                     )
-                    raise
-                completed += 1
-                _log_prefetch_progress(
-                    completed, total, task["order_book_id"], "downloaded"
-                )
+                    failed.append(task["order_book_id"])
+        return failed
 
     def _run_prefetch_parallel(self, tasks, workers, completed, total):
+        failed = []
         executor = ProcessPoolExecutor(max_workers=workers)
         try:
             future_to_task = {
@@ -435,20 +453,18 @@ class BaostockDataSource(BaseDataSource):
                 task = future_to_task[future]
                 try:
                     order_book_id = future.result()
+                    completed += 1
+                    _log_prefetch_progress(
+                        completed, total, order_book_id, "downloaded"
+                    )
                 except Exception:
                     user_system_log.warn(
                         "Baostock prefetch failed: {}", task["order_book_id"]
                     )
-                    raise
-                completed += 1
-                _log_prefetch_progress(
-                    completed, total, order_book_id, "downloaded"
-                )
-        except BaseException:
-            executor.shutdown(wait=False, cancel_futures=True)
-            raise
-        else:
+                    failed.append(task["order_book_id"])
+        finally:
             executor.shutdown(wait=True)
+        return failed
 
     def get_bar(self, instrument, dt, frequency):
         if frequency != "1d":
@@ -542,11 +558,16 @@ def _prefetch_daily_start_date(config_start_date, listed_date):
 
 def _normalize_prefetch_workers(value):
     workers = max(1, int(value if value is not None else 2))
-    if workers > 4:
+    if workers > 12:
         user_system_log.warn(
-            "Baostock prefetch_workers {} is too high, capped to {}", workers, 4
+            "Baostock prefetch_workers {} is too high, capped to {}", workers, 12
         )
-        return 4
+        return 12
+    if workers > 8:
+        user_system_log.warn(
+            "Baostock prefetch_workers {} may hit rate limits; proceed with caution",
+            workers,
+        )
     return workers
 
 

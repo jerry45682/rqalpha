@@ -31,3 +31,4 @@ rqalpha_test_coverage_report/
 rqalpha/_version.py
 
 .claude/settings.local.json
+rqalpha_factor_framework/backtest/multi_factor_result/

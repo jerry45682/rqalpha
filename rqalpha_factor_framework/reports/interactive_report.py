@@ -95,7 +95,171 @@ def _enriched_trades(trades):
     return trades
 
 
-def _aggregate_rebalance_events(trades, strategy_by_date, benchmark_by_date):
+def _per_event_stock_returns(trades, positions):
+    """Compute per-stock PERIOD return between consecutive rebalance events.
+
+    For each rebalance date, computes the return of each stock from the
+    PREVIOUS rebalance to THIS rebalance.  The return is:
+      - For held stocks: (current_mv - prev_mv) / prev_mv
+      - For newly bought: (current_mv - buy_cost) / buy_cost
+      - For fully sold:    (sell_value - prev_mv) / prev_mv
+    """
+    if not hasattr(trades, "empty") or trades.empty:
+        return {}
+
+    trades = trades.copy()
+    datetime_column = _trade_datetime_column(trades)
+    if datetime_column is None:
+        trade_dates = pd.to_datetime(trades.index, errors="coerce")
+    else:
+        trade_dates = pd.to_datetime(trades[datetime_column], errors="coerce")
+    trades["_event_date"] = trade_dates.dt.strftime("%Y-%m-%d")
+    trades = trades.dropna(subset=["_event_date"])
+    if trades.empty:
+        return {}
+
+    # Build symbol lookup
+    symbol_map = {}
+    if "symbol" in trades.columns and "order_book_id" in trades.columns:
+        for _, row in trades[["order_book_id", "symbol"]].drop_duplicates().iterrows():
+            oid, sym = str(row["order_book_id"]), str(row["symbol"])
+            if oid and sym:
+                symbol_map[oid] = sym
+
+    # Index stock positions by date
+    position_values_by_date = {}
+    if hasattr(positions, "empty") and not positions.empty:
+        pos = positions.copy()
+        pos.index = pd.to_datetime(pos.index)
+        if "order_book_id" in pos.columns and "market_value" in pos.columns:
+            pos["market_value"] = pd.to_numeric(pos["market_value"], errors="coerce")
+            for dt_val, grp in pos.groupby(pos.index.date):
+                date_str = pd.Timestamp(dt_val).strftime("%Y-%m-%d")
+                position_values_by_date[date_str] = (
+                    grp.dropna(subset=["order_book_id"])
+                    .groupby("order_book_id")["market_value"]
+                    .sum()
+                    .to_dict()
+                )
+
+    # Aggregate per-event trade info
+    event_dates = sorted(trades["_event_date"].unique())
+    event_trade_info = {}
+    for date in event_dates:
+        event_trade_info[date] = {}
+    for _, trade in trades.iterrows():
+        date = str(trade["_event_date"])
+        oid = str(trade.get("order_book_id", ""))
+        if not oid:
+            continue
+        qty = abs(float(_money(trade.get("last_quantity", 0.0))))
+        price = float(_money(trade.get("last_price", 0.0)))
+        side = str(trade.get("side", "")).upper()
+        val = qty * price
+        info = event_trade_info.get(date, {}).get(oid, {"buy_val": 0.0, "sell_val": 0.0})
+        if side == "BUY":
+            info["buy_val"] += val
+        else:
+            info["sell_val"] += val
+        event_trade_info.setdefault(date, {})[oid] = info
+
+    # prev_mv tracks the market value of each stock at the END of the
+    # previous event.  Starts empty — first event handles this specially.
+    prev_mv = {}
+    event_returns = {}
+
+    for i, date in enumerate(event_dates):
+        pos_values = position_values_by_date.get(date, {})
+        traded_info = event_trade_info.get(date, {})
+        traded_oids = set(traded_info.keys())
+        all_oids = traded_oids | set(prev_mv.keys())
+
+        is_first = (i == 0)
+        stock_rows = []
+
+        for oid in all_oids:
+            info = traded_info.get(oid, {"buy_val": 0.0, "sell_val": 0.0})
+            curr_mv = float(pos_values.get(oid, 0.0))
+            buy_val = info["buy_val"]
+            sell_val = info["sell_val"]
+
+            if is_first:
+                # First event: every stock is "new" — use buy_cost as entry.
+                # For pre-existing stocks (not bought): show current value as both
+                # prev and curr with zero PnL.
+                if buy_val > 0:
+                    entry_val = 0.0
+                    base_val = buy_val
+                    display_prev = base_val
+                    source = "新建"
+                else:
+                    entry_val = curr_mv  # pre-existing, no change
+                    base_val = curr_mv
+                    display_prev = curr_mv
+                    source = "持仓"
+            else:
+                entry_val = float(prev_mv.get(oid, 0.0))
+                base_val = entry_val + buy_val
+                display_prev = base_val
+
+                # Source label
+                if sell_val > 0 and curr_mv == 0 and buy_val == 0:
+                    source = "清仓"
+                elif buy_val > 0 and sell_val > 0 and curr_mv == 0:
+                    source = "换仓"
+                elif buy_val > 0 and entry_val == 0:
+                    source = "新建"
+                elif buy_val > 0:
+                    source = "加仓"
+                elif sell_val > 0:
+                    source = "减仓"
+                else:
+                    source = "持仓"
+
+            # Unified period PnL:
+            #   curr_mv - entry_val - buy_val + sell_val
+            if is_first:
+                period_pnl = curr_mv - base_val if buy_val > 0 else 0.0
+            else:
+                period_pnl = curr_mv - entry_val - buy_val + sell_val
+
+            if base_val > 0:
+                return_rate = period_pnl / base_val
+                return_label = "{:.2%}".format(return_rate)
+            else:
+                return_rate = None
+                return_label = "-"
+
+            display_curr = sell_val if (sell_val > 0 and curr_mv == 0) else curr_mv
+
+            stock_rows.append({
+                "order_book_id": oid,
+                "symbol": symbol_map.get(oid, ""),
+                "prev_value": display_prev,
+                "curr_value": display_curr,
+                "pnl": period_pnl,
+                "return_rate": return_rate,
+                "return_label": return_label,
+                "source": source,
+            })
+
+        event_returns[date] = sorted(
+            stock_rows,
+            key=lambda r: (r["return_rate"] is None, -(r["return_rate"] or 0.0)),
+        )
+
+        # Update prev_mv for next period
+        prev_mv = {
+            oid: float(pos_values.get(oid, 0.0))
+            for oid in all_oids
+            if float(pos_values.get(oid, 0.0)) > 0
+        }
+
+    return event_returns
+
+
+def _aggregate_rebalance_events(trades, strategy_by_date, benchmark_by_date,
+                                 positions=None):
     if not hasattr(trades, "empty") or trades.empty:
         return []
 
@@ -109,6 +273,8 @@ def _aggregate_rebalance_events(trades, strategy_by_date, benchmark_by_date):
     trades = trades.dropna(subset=["_event_date"])
     if trades.empty:
         return []
+
+    event_stock_returns = _per_event_stock_returns(trades, positions)
 
     events = []
     for date, group in trades.groupby("_event_date", sort=True):
@@ -135,6 +301,7 @@ def _aggregate_rebalance_events(trades, strategy_by_date, benchmark_by_date):
                 ),
                 "buys": buys,
                 "sells": sells,
+                "stock_returns": event_stock_returns.get(date, []),
             }
         )
     return events
@@ -229,6 +396,36 @@ def _traded_symbol_returns(trades, positions):
     )
 
 
+def _position_ratio_series(portfolio, positions):
+    """Compute daily position ratio = total_market_value / total_portfolio_value."""
+    if not hasattr(positions, "empty") or positions.empty:
+        return []
+    if "market_value" not in positions.columns:
+        return []
+
+    pos = positions.copy()
+    pos.index = pd.to_datetime(pos.index)
+    pos["market_value"] = pd.to_numeric(pos["market_value"], errors="coerce")
+    daily_mv = pos.groupby(pos.index.date)["market_value"].sum()
+
+    pf = portfolio.copy()
+    pf.index = pd.to_datetime(pf.index)
+    if "total_value" in pf.columns:
+        pf["total_value"] = pd.to_numeric(pf["total_value"], errors="coerce")
+    elif "unit_net_value" in pf.columns:
+        # Estimate total_value from unit_net_value (assume starting = 1.0)
+        pf["total_value"] = pd.to_numeric(pf["unit_net_value"], errors="coerce")
+
+    result = []
+    for dt, mv in daily_mv.items():
+        date_str = pd.Timestamp(dt).strftime("%Y-%m-%d")
+        tv = pf.loc[pf.index.date == dt, "total_value"]
+        if len(tv) > 0 and float(tv.iloc[0]) > 0:
+            ratio = float(mv) / float(tv.iloc[0])
+            result.append({"date": date_str, "ratio": ratio})
+    return result
+
+
 def _build_payload(result):
     portfolio = result["portfolio"].copy()
     strategy_data = _return_series(portfolio)
@@ -244,10 +441,15 @@ def _build_payload(result):
         result.get("trades", pd.DataFrame()),
         strategy_by_date,
         benchmark_by_date,
+        positions=result.get("stock_positions", pd.DataFrame()),
+    )
+    position_data = _position_ratio_series(
+        portfolio, result.get("stock_positions", pd.DataFrame())
     )
     return {
         "strategyData": strategy_data,
         "benchmarkData": benchmark_data,
+        "positionData": position_data,
         "rebalanceEvents": events,
         "summaryRows": _summary_rows(result.get("summary", {})),
         "tradedSymbolReturns": _traded_symbol_returns(
@@ -267,6 +469,7 @@ def _render_html(payload):
         [
             _json_script("strategyData", payload["strategyData"]),
             _json_script("benchmarkData", payload["benchmarkData"]),
+            _json_script("positionData", payload["positionData"]),
             _json_script("rebalanceEvents", payload["rebalanceEvents"]),
             _json_script("summaryRows", payload["summaryRows"]),
             _json_script("tradedSymbolReturns", payload["tradedSymbolReturns"]),
@@ -350,6 +553,7 @@ def _render_html(payload):
     .legend .strategy { color: var(--strategy); }
     .legend .benchmark { color: var(--benchmark); }
     .legend .event { color: var(--event); }
+    .legend .position { color: var(--strategy); opacity: 0.45; }
     svg {
       width: 100%;
       height: 420px;
@@ -436,6 +640,7 @@ def _render_html(payload):
           <span class="strategy">strategy</span>
           <span class="benchmark">benchmark</span>
           <span class="event">rebalance</span>
+          <span class="position">仓位</span>
         </div>
       </div>
       <svg id="chart" role="img" aria-label="收益曲线和调仓记录"></svg>
@@ -473,6 +678,8 @@ function renderSummary() {
 function eventHtml(event, compact=false) {
   const buyRows = event.buys.map(rowHtml).join("") || `<tr><td colspan="6">无买入</td></tr>`;
   const sellRows = event.sells.map(rowHtml).join("") || `<tr><td colspan="6">无卖出</td></tr>`;
+  const stockReturnRows = (event.stock_returns || []).map(stockReturnRow).join("")
+    || `<tr><td colspan="7">无持仓收益</td></tr>`;
   const header = `
     <div class="detail-grid">
       <div>日期：<strong>${event.date}</strong></div>
@@ -488,7 +695,9 @@ function eventHtml(event, compact=false) {
     <div class="tables">
       <div><h3>买入</h3><table><thead>${tableHead()}</thead><tbody>${buyRows}</tbody></table></div>
       <div><h3>卖出</h3><table><thead>${tableHead()}</thead><tbody>${sellRows}</tbody></table></div>
-    </div>`;
+    </div>
+    <div style="margin-top:16px"><h3>阶段个股收益（自上期调仓以来）</h3>
+    <table><thead>${stockReturnHead()}</thead><tbody>${stockReturnRows}</tbody></table></div>`;
 }
 
 function tableHead() {
@@ -503,6 +712,25 @@ function rowHtml(row) {
     <td>${Number(row.quantity || 0).toLocaleString("zh-CN")}</td>
     <td>${Number(row.price || 0).toFixed(2)}</td>
     <td>${fmtMoney(row.value)}</td>
+  </tr>`;
+}
+
+function stockReturnHead() {
+  return "<tr><th>代码</th><th>名称</th><th>期初价值</th><th>期末价值</th><th>阶段盈亏</th><th>阶段收益</th><th>状态</th></tr>";
+}
+
+function stockReturnRow(row) {
+  const source = row.source || "持仓";
+  const pnlColor = (row.pnl || 0) >= 0 ? '#16a34a' : '#dc2626';
+  const retColor = (row.return_rate || 0) >= 0 ? '#16a34a' : '#dc2626';
+  return `<tr>
+    <td>${row.order_book_id}</td>
+    <td>${row.symbol}</td>
+    <td>${fmtMoney(row.prev_value)}</td>
+    <td>${fmtMoney(row.curr_value)}</td>
+    <td style="color:${pnlColor}">${fmtMoney(row.pnl)}</td>
+    <td style="color:${retColor}">${row.return_label}</td>
+    <td>${source}</td>
   </tr>`;
 }
 
@@ -541,7 +769,8 @@ function renderSymbolReturns() {
 function renderChart() {
   const width = svg.clientWidth || 1000;
   const height = 420;
-  const margin = { top: 18, right: 28, bottom: 42, left: 58 };
+  const hasPosition = positionData && positionData.length > 0;
+  const margin = { top: 18, right: hasPosition ? 64 : 28, bottom: 42, left: 58 };
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.innerHTML = "";
   if (!strategyData.length) return;
@@ -574,6 +803,50 @@ function renderChart() {
   svg.insertAdjacentHTML("beforeend", `<path class="line-path" stroke="var(--strategy)" d="${pathFor(strategyData)}"></path>`);
   if (benchmarkData.length) {
     svg.insertAdjacentHTML("beforeend", `<path class="line-path" stroke="var(--benchmark)" d="${pathFor(benchmarkData)}"></path>`);
+  }
+
+  // Position ratio as semi-transparent filled area (right axis)
+  if (hasPosition) {
+    const posMap = new Map(positionData.map(d => [d.date, d.ratio]));
+    const posMin = 0, posMax = 1.0;
+    const rightW = 46;
+    const posX = idx => margin.left + (idx / (dates.length - 1)) * (innerW - rightW);
+    const posY = ratio => margin.top + (posMax - ratio) / (posMax - posMin) * innerH;
+
+    // Build area path
+    let areaD = "";
+    let firstIdx = -1, lastIdx = -1;
+    for (let i = 0; i < dates.length; i++) {
+      const r = posMap.get(dates[i]);
+      if (r !== undefined) {
+        if (firstIdx < 0) firstIdx = i;
+        lastIdx = i;
+      }
+    }
+    if (firstIdx >= 0) {
+      areaD += `M${posX(firstIdx)},${posY(posMax)}`;
+      for (let i = firstIdx; i <= lastIdx; i++) {
+        const r = posMap.get(dates[i]);
+        const ratio = r !== undefined ? Math.max(0, Math.min(1, r)) : null;
+        if (ratio !== null) {
+          areaD += `L${posX(i)},${posY(ratio)}`;
+        }
+      }
+      areaD += `L${posX(lastIdx)},${posY(posMax)}Z`;
+
+      svg.insertAdjacentHTML("beforeend", `<path fill="var(--strategy)" fill-opacity="0.08" d="${areaD}"></path>`);
+
+      // Right-axis labels
+      const ticks = [0, 0.5, 1.0];
+      ticks.forEach(ratio => {
+        const yy = posY(ratio);
+        const label = `${(ratio * 100).toFixed(0)}%`;
+        svg.insertAdjacentHTML("beforeend", `<g class="axis"><text x="${width - margin.right + 12}" y="${yy + 4}" text-anchor="start" fill="var(--strategy)" font-size="10">${label}</text></g>`);
+        svg.insertAdjacentHTML("beforeend", `<g class="grid" opacity="0.3"><line x1="${margin.left}" y1="${yy}" x2="${width - margin.right}" y2="${yy}" stroke="var(--strategy)" stroke-dasharray="3,5"></line></g>`);
+      });
+      // Right axis label
+      svg.insertAdjacentHTML("beforeend", `<g class="axis"><text x="${width - margin.right + 12}" y="${margin.top - 4}" text-anchor="start" fill="var(--muted)" font-size="10">仓位</text></g>`);
+    }
   }
 
   if (!rebalanceEvents.length) {

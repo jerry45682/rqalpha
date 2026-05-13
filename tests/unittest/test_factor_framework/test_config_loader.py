@@ -23,9 +23,9 @@ def test_load_default_config_has_required_sections():
     assert config["stock_pool"]["symbols"] is None
     assert config["rebalance"]["frequency"] == "monthly"
     assert config["rebalance"]["tradingday"] == 1
-    assert config["portfolio"]["holding_count"] == 20
-    assert config["portfolio"]["buffer_count"] == 50
-    assert config["portfolio"]["weighting"] == "equal"
+    assert config["portfolio"]["holding_count"] == 14
+    assert config["portfolio"]["buffer_count"] == 21
+    assert config["portfolio"]["weighting"] == "score"
     assert config["factors"]["enabled_categories"] == [
         "valuation",
         "quality",
@@ -36,16 +36,10 @@ def test_load_default_config_has_required_sections():
         "liquidity",
         "technical",
     ]
-    assert config["factors"]["category_weights"] == {
-        "valuation": 0.15,
-        "quality": 0.20,
-        "growth": 0.20,
-        "momentum": 0.15,
-        "reversal": 0.05,
-        "risk": 0.10,
-        "liquidity": 0.05,
-        "technical": 0.10,
-    }
+    w = config["factors"]["category_weights"]
+    assert set(w.keys()) == { "valuation", "quality", "growth", "momentum",
+                              "reversal", "risk", "liquidity", "technical" }
+    assert sum(w.values()) == pytest.approx(1.0)
     assert config["factors"]["factor_weights"] == {}
     assert config["scoring"]["missing"] == "median"
     assert config["scoring"]["min_factor_coverage"] == 0.3
@@ -55,11 +49,11 @@ def test_load_default_config_has_required_sections():
     assert config["filters"]["exclude_st"] is True
     assert config["filters"]["exclude_suspended"] is True
     assert config["filters"]["min_listed_days"] == 180
-    assert config["filters"]["min_avg_amount_20"] == 30000000
+    assert config["filters"]["min_avg_amount_20"] == 44047790
     assert config["filters"]["require_positive_pe_pb"] is True
     assert config["filters"]["skip_limit_up_buy"] is True
     assert config["filters"]["skip_limit_down_sell"] is True
-    assert config["risk"]["max_stock_weight"] == 0.1
+    assert config["risk"]["max_stock_weight"] == pytest.approx(0.09, abs=0.01)
     assert config["risk"]["max_industry_weight"] == 0.25
     assert config["risk"]["market_timing"]["enabled"] is True
     assert config["risk"]["market_timing"]["index"] == "000300.XSHG"
@@ -70,7 +64,7 @@ def test_load_default_config_has_required_sections():
     assert config["data"]["adjustflag"] == "2"
     assert config["data"]["start_date"] == "2024-01-01"
     assert config["data"]["end_date"] is None
-    assert config["data"]["prefetch"] is True
+    assert config["data"]["prefetch"] is False
     assert config["data"]["runtime_fetch"] is True
     assert config["data"]["runtime_fetch_financial"] is False
     assert config["data"]["runtime_fetch_industry"] is True
@@ -82,8 +76,8 @@ def test_load_default_config_has_required_sections():
         "dupont",
         "operation",
     ]
-    assert config["backtest"]["start_date"] == "2025-01-03"
-    assert config["backtest"]["end_date"] == "2025-12-26"
+    assert config["backtest"]["start_date"] == "2025-01-05"
+    assert config["backtest"]["end_date"] == "2025-12-25"
     assert config["backtest"]["frequency"] == "1d"
     assert config["backtest"]["benchmark"] == "000300.XSHG"
     assert config["backtest"]["initial_cash"] == 1000000
@@ -111,7 +105,7 @@ def test_load_config_merges_user_overrides(tmp_path):
     config = load_config(path)
 
     assert config["portfolio"]["holding_count"] == 5
-    assert config["portfolio"]["buffer_count"] == 50
+    assert config["portfolio"]["buffer_count"] == 21
     assert config["stock_pool"]["symbols"] == ["600000.XSHG"]
 
 
@@ -235,10 +229,10 @@ def test_load_config_returns_are_isolated_between_calls(tmp_path):
     third = load_config()
 
     assert second["portfolio"]["holding_count"] == 5
-    assert second["portfolio"]["buffer_count"] == 50
-    assert second["factors"]["category_weights"]["valuation"] == 0.15
-    assert third["portfolio"]["holding_count"] == 20
-    assert third["factors"]["category_weights"]["valuation"] == 0.15
+    assert second["portfolio"]["buffer_count"] == 21
+    assert second["factors"]["category_weights"]["valuation"] == pytest.approx(0.15, abs=0.01)
+    assert third["portfolio"]["holding_count"] == 14
+    assert third["factors"]["category_weights"]["valuation"] == pytest.approx(0.15, abs=0.01)
 
 
 def test_load_aggressive_template_config():

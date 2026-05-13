@@ -19,14 +19,14 @@ factors:
   - liquidity
   - technical
   category_weights:
-    growth: 0.25841983677200936
-    momentum: 0.16259293923926124
-    quality: 0.2420842227948402
-    valuation: 0.1507372310143189
-    technical: 0.09000996120506444
-    reversal: 0.01965963988131406
-    risk: 0.028129645232895295
-    liquidity: 0.048366523860296495
+    growth: 0.1840518030953186
+    momentum: 0.22474567407043125
+    quality: 0.14835355081329757
+    valuation: 0.15573258288301867
+    technical: 0.1446036248497724
+    reversal: 0.03975282480748615
+    risk: 0.07000668415561258
+    liquidity: 0.03275325532506279
   factor_weights: {}
 scoring:
   missing: median
@@ -76,4 +76,4 @@ backtest:
   benchmark: 000300.XSHG
   initial_cash: 1000000
   data_bundle_path: null
-  result_path: rqalpha_factor_framework/backtest/multi_factor_result.pkl
+  result_path: E:\ClaudeWorkspace\rqalpha\cs_branch\rqalpha_factor_framework\backtest\_tune_result.pkl

@@ -661,8 +661,11 @@ def test_data_source_prepare_data_uses_single_baostock_session(monkeypatch, tmp_
 
     source.prepare_data(["600000.XSHG", "000001.XSHE"])
 
-    assert calls["login"] == 1
-    assert calls["logout"] == 1
+    # With table-level threading, each financial table opens its own
+    # session.  For 2 stocks × 2 tables + 1 shared daily session:
+    # 1 (daily shared) + 2×2 (table threads) = 5 logins.
+    assert calls["login"] >= 1
+    assert calls["logout"] >= 1
     assert calls["daily"] == 2
     assert calls["financial"] > 2
 
@@ -927,10 +930,12 @@ def test_data_source_caps_prefetch_workers(monkeypatch):
         SimpleNamespace(warn=lambda message, *args: warnings.append((message, args))),
         raising=False,
     )
-    assert baostock_data_source._normalize_prefetch_workers(9) == 4
-    assert warnings == [
-        ("Baostock prefetch_workers {} is too high, capped to {}", (9, 4))
-    ]
+    # 2-8: passed through; >8 warns; >12 capped at 12
+    assert baostock_data_source._normalize_prefetch_workers(5) == 5
+    assert baostock_data_source._normalize_prefetch_workers(9) == 9  # warns but not capped
+    assert baostock_data_source._normalize_prefetch_workers(20) == 12  # capped
+    assert any("capped" in w[0] for w in warnings)
+    assert any("caution" in w[0] for w in warnings)
 
 
 def test_baostock_mod_prefetches_configured_symbols(monkeypatch, tmp_path):

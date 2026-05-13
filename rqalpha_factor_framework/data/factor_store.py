@@ -74,9 +74,24 @@ class FactorStore:
 
         tables = tuple(tables or FINANCIAL_TABLES)
         year_quarters = _financial_year_quarters(start_date, end_date)
-        for order_book_id in order_book_ids:
-            for table in tables:
-                self._update_financial_quarters(order_book_id, table, year_quarters)
+
+        # Use a shared baostock session when the client supports it,
+        # otherwise fall back to per-query sessions (e.g. mock clients in tests).
+        bs = None
+        try:
+            bs = self.client.login()
+        except AttributeError:
+            pass
+
+        try:
+            for order_book_id in order_book_ids:
+                for table in tables:
+                    self._update_financial_quarters(
+                        order_book_id, table, year_quarters, bs=bs
+                    )
+        finally:
+            if bs is not None:
+                self.client.logout(bs)
 
     def prepare_industry(self, date):
         if self.client is None:
@@ -115,16 +130,28 @@ class FactorStore:
         tables = tuple(tables or FINANCIAL_TABLES)
         as_of_date = pd.Timestamp(date)
         result = {}
+
+        # Lazily build an in-memory cache to avoid repeated CSV reads across
+        # rebalance cycles.  Financial data is historical — it does not change
+        # between rebalances, only the as-of-date filter differs.
+        if not hasattr(self, "_financial_mem_cache"):
+            self._financial_mem_cache = {}
+
         for order_book_id in order_book_ids:
-            result[order_book_id] = {}
+            stock_tables = {}
             for table in tables:
-                frame = self.read_financial(order_book_id, table)
-                result[order_book_id][table] = _filter_financial_by_pub_date(
+                cache_key = (order_book_id, table)
+                frame = self._financial_mem_cache.get(cache_key)
+                if frame is None:
+                    frame = self.read_financial(order_book_id, table)
+                    self._financial_mem_cache[cache_key] = frame
+                stock_tables[table] = _filter_financial_by_pub_date(
                     frame, as_of_date
                 )
+            result[order_book_id] = stock_tables
         return result
 
-    def _update_financial_quarters(self, order_book_id, table, year_quarters):
+    def _update_financial_quarters(self, order_book_id, table, year_quarters, bs=None):
         cached = self.read_financial(order_book_id, table)
         existing = _existing_quarters(cached)
         pieces = [cached] if not cached.empty else []
@@ -133,9 +160,14 @@ class FactorStore:
             key = (int(year), int(quarter))
             if key in existing:
                 continue
-            fetched = self.client.query_financial_table(
-                order_book_id, table, key[0], key[1]
-            )
+            if bs is not None:
+                fetched = self.client.query_financial_table(
+                    order_book_id, table, key[0], key[1], bs=bs
+                )
+            else:
+                fetched = self.client.query_financial_table(
+                    order_book_id, table, key[0], key[1]
+                )
             frame = _normalize_financial_frame(fetched, order_book_id, key[0], key[1])
             if not frame.empty:
                 pieces.append(frame)

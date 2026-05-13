@@ -58,6 +58,12 @@ def sorted_financial_frame(frame):
         return pd.DataFrame()
     for column in ("pubDate", "statDate", "date"):
         if column in frame.columns:
+            col = pd.to_numeric(
+                pd.to_datetime(frame[column], errors="coerce").astype(np.int64),
+                errors="coerce",
+            )
+            if col.is_monotonic_increasing:
+                return frame
             return frame.sort_values(column)
     return frame
 

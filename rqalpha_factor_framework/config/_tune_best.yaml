@@ -76,4 +76,4 @@ backtest:
   benchmark: 000300.XSHG
   initial_cash: 1000000
   data_bundle_path: null
-  result_path: rqalpha_factor_framework/backtest/multi_factor_result.pkl
+  result_path: E:\ClaudeWorkspace\rqalpha\cs_branch\rqalpha_factor_framework\backtest\_tune_result.pkl

@@ -1,3 +1,6 @@
+import time
+
+import numpy as np
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype
 from rqalpha.apis import (
@@ -8,18 +11,27 @@ from rqalpha.apis import (
     order_target_percent,
 )
 from rqalpha.environment import Environment
+from rqalpha.utils.datetime_func import convert_date_to_int
 
 from rqalpha_factor_framework.config import load_config
 from rqalpha_factor_framework.data import BaostockClient, FactorStore
 from rqalpha_factor_framework.factors import FACTOR_METADATA
-from rqalpha_factor_framework.factors.growth import calculate_growth_factors
-from rqalpha_factor_framework.factors.liquidity import calculate_liquidity_factors
-from rqalpha_factor_framework.factors.momentum import calculate_momentum_factors
-from rqalpha_factor_framework.factors.quality import calculate_quality_factors
-from rqalpha_factor_framework.factors.reversal import calculate_reversal_factors
-from rqalpha_factor_framework.factors.risk import calculate_risk_factors
-from rqalpha_factor_framework.factors.technical import calculate_technical_factors
-from rqalpha_factor_framework.factors.valuation import calculate_valuation_factors
+from rqalpha_factor_framework.factors.base import (
+    build_factor_frame,
+    latest_financial_numeric,
+    nan_row,
+    numeric_series,
+    sorted_frame,
+)
+from rqalpha_factor_framework.factors.momentum import _period_return
+from rqalpha_factor_framework.factors.reversal import _rsi
+from rqalpha_factor_framework.factors.risk import _max_drawdown
+from rqalpha_factor_framework.factors.technical import _macd_hist, _obv_trend
+from rqalpha_factor_framework.factors.growth import (
+    _same_quarter_yoy,
+    _operating_cashflow_proxy,
+)
+from rqalpha_factor_framework.factors.quality import _dupont_roa
 from rqalpha_factor_framework.filters import filter_by_avg_amount, filter_stocks
 from rqalpha_factor_framework.portfolio import (
     apply_industry_weight_cap,
@@ -29,6 +41,18 @@ from rqalpha_factor_framework.portfolio import (
     market_timing_exposure,
 )
 from rqalpha_factor_framework.scoring import build_factor_scores, preprocess_factors
+
+
+_INDEX_COMPONENTS_CACHE = {}
+
+def _log_elapsed(label, start, threshold=0.001):
+    elapsed = time.perf_counter() - start
+    if elapsed >= threshold:
+        try:
+            logger.info("[TIMING] {}: {:.3f}s".format(label, elapsed))
+        except AttributeError:
+            pass
+    return elapsed
 
 
 HISTORY_BAR_COUNT = 130
@@ -59,6 +83,16 @@ def init(context):
     config_path = getattr(context, "factor_config_path", None)
     config = load_config(config_path)
     context.factor_config = config
+
+    # Pre-create reusable FactorStore and Industry store for cross-rebalance caching
+    data_config = config.get("data", {})
+    cache_dir = data_config.get("cache_dir")
+    if cache_dir:
+        context._factor_store = FactorStore(cache_dir)
+        context._industry_store = FactorStore(cache_dir)
+    else:
+        context._factor_store = None
+        context._industry_store = None
 
     rebalance_config = config["rebalance"]
     frequency = str(rebalance_config.get("frequency", "monthly")).lower()
@@ -98,11 +132,17 @@ def _resolve_index_components(index_order_book_id, date=None):
 
 
 def _fetch_baostock_index_components(index_order_book_id, date=None):
+    cache_key = "{}_{}".format(index_order_book_id, str(date) if date else "latest")
+    if cache_key in _INDEX_COMPONENTS_CACHE:
+        return _INDEX_COMPONENTS_CACHE[cache_key]
+
     from rqalpha.mod.rqalpha_mod_baostock.data_source import (
         fetch_baostock_index_components,
     )
 
-    return fetch_baostock_index_components(index_order_book_id, date=date)
+    components = fetch_baostock_index_components(index_order_book_id, date=date)
+    _INDEX_COMPONENTS_CACHE[cache_key] = components
+    return components
 
 
 def _filter_stock_pool_to_bundle(symbols):
@@ -227,12 +267,62 @@ def _frame_as_of(frame, as_of_date, max_count=None):
 
 
 def _fetch_daily_data(stock_pool, as_of_date=None):
+    t0 = time.perf_counter()
+    bar_count = HISTORY_BAR_COUNT + 1
+
+    # Fast path: bypass the RQAlpha API layer and call the cached baostock data
+    # source directly.  This avoids decorator validation, instrument lookup, and
+    # DataProxy dispatch overhead for each of the 300 stocks.
+    ds = _baostock_data_source()
+    if ds is not None:
+        dt_int = np.uint64(convert_date_to_int(as_of_date)) if as_of_date is not None else None
+        daily_data = {}
+        for order_book_id in stock_pool:
+            try:
+                bars = ds._all_baostock_day_bars(order_book_id)
+            except Exception:
+                continue
+            if bars is None or len(bars) == 0:
+                continue
+
+            # Replicate the date-slicing that history_bars() does:
+            #   right = searchsorted(dt, side="right")
+            #   left = max(0, right - bar_count)
+            if dt_int is not None:
+                right = int(bars["datetime"].searchsorted(dt_int, side="right"))
+                left = max(0, right - bar_count)
+                bars = bars[left:right]
+            else:
+                bars = bars[-bar_count:] if len(bars) > bar_count else bars
+
+            # Select the fields we need (same as HISTORY_FIELDS)
+            field_mask = [f for f in HISTORY_FIELDS if f in bars.dtype.names]
+            bars = bars[field_mask]
+
+            # Fast DataFrame conversion — skip the slow _parse_datetime_value()
+            # that iterates row-by-row.  BAR_DTYPE datetime is uint64 YYYYMMDD.
+            frame = pd.DataFrame(bars)
+            if frame.empty:
+                continue
+            d_vals = frame["datetime"].values.astype(np.int64)
+            frame["date"] = pd.to_datetime(
+                d_vals.astype(str), format="%Y%m%d", errors="coerce"
+            )
+            frame["order_book_id"] = order_book_id
+            daily_data[order_book_id] = frame
+
+        _log_elapsed(
+            "fetch_daily_data fast-path ({} stocks)".format(len(daily_data)), t0
+        )
+        return daily_data
+
+    # Slow path: fallback to the public history_bars() API
     daily_data = {}
     for order_book_id in stock_pool:
         try:
             bars = history_bars(
                 order_book_id,
-                HISTORY_BAR_COUNT + 1,
+                bar_count,
                 "1d",
                 HISTORY_FIELDS,
                 skip_suspended=False,
@@ -251,7 +341,20 @@ def _fetch_daily_data(stock_pool, as_of_date=None):
             logger.warning("history bars empty for {}".format(order_book_id))
             continue
         daily_data[order_book_id] = frame
+
+    _log_elapsed("fetch_daily_data slow-path ({} stocks)".format(len(daily_data)), t0)
     return daily_data
+
+
+def _baostock_data_source():
+    """Return the BaostockDataSource singleton if active, otherwise None."""
+    try:
+        ds = Environment.get_instance().data_proxy._data_source
+    except RuntimeError:
+        return None
+    if hasattr(ds, "_all_baostock_day_bars"):
+        return ds
+    return None
 
 
 def _context_datetime(context):
@@ -310,6 +413,7 @@ def _filter_financial_table_as_of(frame, as_of_date):
 
 
 def _resolve_financial_data(context, stock_pool, as_of_date=None):
+    t0 = time.perf_counter()
     supplied = getattr(context, "financial_data", None)
     stock_pool = list(stock_pool)
     data_config = getattr(context, "factor_config", {}).get("data", {})
@@ -326,9 +430,36 @@ def _resolve_financial_data(context, stock_pool, as_of_date=None):
                 )
                 for table in financial_tables
             }
+        _log_elapsed("resolve_financial_data (supplied)", t0)
         return financial_data
 
     cache_dir = data_config.get("cache_dir")
+    store = getattr(context, "_factor_store", None) if cache_dir else None
+    if store is not None:
+        start_date = data_config.get("start_date")
+        end_date = data_config.get("end_date") or as_of_date
+        if data_config.get("runtime_fetch_financial", False):
+            t_prep = time.perf_counter()
+            if store.client is None:
+                store.client = BaostockClient(adjustflag=data_config.get("adjustflag", "2"))
+            try:
+                store.prepare_financials(
+                    stock_pool,
+                    start_date or as_of_date,
+                    end_date,
+                    tables=financial_tables,
+                )
+            except Exception as exc:
+                logger.warning("failed to update baostock financial cache: {}".format(exc))
+            _log_elapsed("  prepare_financials", t_prep)
+        if as_of_date is None:
+            as_of_date = _context_datetime(context)
+        t_get = time.perf_counter()
+        result = store.get_financial_tables(stock_pool, as_of_date, tables=financial_tables)
+        _log_elapsed("  get_financial_tables ({} stocks)".format(len(stock_pool)), t_get)
+        _log_elapsed("resolve_financial_data (reused store)", t0)
+        return result
+
     if cache_dir:
         client = None
         if data_config.get("runtime_fetch_financial", False):
@@ -344,11 +475,13 @@ def _resolve_financial_data(context, stock_pool, as_of_date=None):
                     end_date,
                     tables=financial_tables,
                 )
-            except Exception as exc:  # pragma: no cover - depends on live baostock
+            except Exception as exc:
                 logger.warning("failed to update baostock financial cache: {}".format(exc))
         if as_of_date is None:
             as_of_date = _context_datetime(context)
-        return store.get_financial_tables(stock_pool, as_of_date, tables=financial_tables)
+        result = store.get_financial_tables(stock_pool, as_of_date, tables=financial_tables)
+        _log_elapsed("resolve_financial_data (new store)", t0)
+        return result
 
     financial_data = {}
     for order_book_id in stock_pool:
@@ -358,22 +491,59 @@ def _resolve_financial_data(context, stock_pool, as_of_date=None):
         financial_data[order_book_id] = {
             table: tables.get(table, pd.DataFrame()) for table in financial_tables
         }
+    _log_elapsed("resolve_financial_data (empty)", t0)
     return financial_data
 
 
 def _resolve_industry_map(context, stock_pool, as_of_date=None):
+    t0 = time.perf_counter()
     supplied = getattr(context, "industry_map", None)
     stock_pool = list(stock_pool)
     if isinstance(supplied, dict) and supplied:
-        return {
+        result = {
             order_book_id: supplied[order_book_id]
             for order_book_id in stock_pool
             if order_book_id in supplied
         }
+        _log_elapsed("resolve_industry_map (supplied)", t0)
+        return result
+
+    # Reuse in-memory cache when it fully covers the stock pool.
+    # If there are new stocks not in the cache, fall through to fetch the
+    # complete map and merge — never return a partial mapping.
+    cached = getattr(context, "_industry_map_cache", None)
+    if cached is not None:
+        missing = [s for s in stock_pool if s not in cached]
+        if not missing:
+            subset = {k: v for k, v in cached.items() if k in set(stock_pool)}
+            _log_elapsed("resolve_industry_map (mem-cached)", t0)
+            return subset
 
     data_config = getattr(context, "factor_config", {}).get("data", {})
     cache_dir = data_config.get("cache_dir")
+    store = getattr(context, "_industry_store", None) if cache_dir else None
+    if store is not None:
+        if store.client is None and data_config.get("runtime_fetch_industry", True):
+            store.client = BaostockClient(adjustflag=data_config.get("adjustflag", "2"))
+        if as_of_date is None:
+            as_of_date = _previous_trading_datetime(context)
+        try:
+            result = store.get_industry_map(stock_pool, as_of_date)
+            # Merge into the existing cache so new constituents accumulate
+            if cached is not None:
+                cached.update(result)
+                context._industry_map_cache = cached
+            else:
+                context._industry_map_cache = result
+            _log_elapsed("resolve_industry_map (reused store)", t0)
+            return result
+        except Exception as exc:
+            logger.warning("failed to update baostock industry cache: {}".format(exc))
+            _log_elapsed("resolve_industry_map (error)", t0)
+            return {}
+
     if not cache_dir:
+        _log_elapsed("resolve_industry_map (no cache)", t0)
         return {}
 
     client = None
@@ -383,25 +553,166 @@ def _resolve_industry_map(context, stock_pool, as_of_date=None):
     if as_of_date is None:
         as_of_date = _previous_trading_datetime(context)
     try:
-        return store.get_industry_map(stock_pool, as_of_date)
-    except Exception as exc:  # pragma: no cover - depends on live baostock
+        result = store.get_industry_map(stock_pool, as_of_date)
+        if cached is not None:
+            cached.update(result)
+            context._industry_map_cache = cached
+        else:
+            context._industry_map_cache = result
+        _log_elapsed("resolve_industry_map (new store)", t0)
+        return result
+    except Exception as exc:
         logger.warning("failed to update baostock industry cache: {}".format(exc))
+        _log_elapsed("resolve_industry_map (error)", t0)
         return {}
 
 
 def _calculate_raw_factors(daily_data, financial_data):
-    factor_frames = [
-        calculate_valuation_factors(daily_data),
-        calculate_quality_factors(financial_data),
-        calculate_growth_factors(financial_data),
-        calculate_momentum_factors(daily_data),
-        calculate_reversal_factors(daily_data),
-        calculate_risk_factors(daily_data),
-        calculate_liquidity_factors(daily_data),
-        calculate_technical_factors(daily_data),
+    """Compute all factor values in a single pass over daily_data and financial_data."""
+    t0 = time.perf_counter()
+    all_columns = [
+        "pe_ttm", "pb", "ps_ttm", "pcf_ncf_ttm",
+        "roe", "roa", "gross_margin", "debt_to_asset",
+        "asset_turnover", "inventory_turnover", "receivables_turnover",
+        "revenue_growth_yoy", "net_profit_growth_yoy",
+        "operating_cashflow_growth_yoy",
+        "return_20", "return_60", "return_120", "price_ma60_strength",
+        "return_5", "rsi",
+        "volatility_60", "max_drawdown_120",
+        "avg_amount_20", "avg_turnover_20",
+        "macd_hist", "obv_trend",
     ]
-    raw_factors = pd.concat(factor_frames, axis=1)
-    return raw_factors.loc[:, ~raw_factors.columns.duplicated()]
+
+    rows = []
+    t_daily = time.perf_counter()
+
+    # ---- single pass over daily data ----
+    for order_book_id, frame in daily_data.items():
+        data = sorted_frame(frame)
+        close = numeric_series(data, "close")
+        volume = numeric_series(data, "volume")
+        amount = numeric_series(data, "amount")
+        turnover_series = numeric_series(data, "turn")
+
+        row = nan_row(order_book_id, all_columns)
+
+        # --- valuation ---
+        if not data.empty:
+            latest = data.iloc[-1]
+            row["pe_ttm"] = _safe_numeric(latest.get("peTTM"))
+            row["pb"] = _safe_numeric(latest.get("pbMRQ"))
+            row["ps_ttm"] = _safe_numeric(latest.get("psTTM"))
+            row["pcf_ncf_ttm"] = _safe_numeric(latest.get("pcfNcfTTM"))
+
+        # --- momentum ---
+        row["return_20"] = _period_return(close, 20)
+        row["return_60"] = _period_return(close, 60)
+        row["return_120"] = _period_return(close, 120)
+        if len(close) >= 60:
+            ma60 = close.tail(60).mean()
+            if ma60 != 0:
+                row["price_ma60_strength"] = close.iloc[-1] / ma60 - 1.0
+
+        # --- reversal ---
+        row["return_5"] = _period_return(close, 5)
+        row["rsi"] = _rsi(close)
+
+        # --- risk ---
+        returns = close.pct_change().dropna()
+        if len(returns) >= 60:
+            row["volatility_60"] = returns.tail(60).std()
+        row["max_drawdown_120"] = _max_drawdown(close, 120)
+
+        # --- liquidity ---
+        if len(amount) >= 20:
+            row["avg_amount_20"] = amount.tail(20).mean()
+        if len(turnover_series) >= 20:
+            row["avg_turnover_20"] = turnover_series.tail(20).mean()
+
+        # --- technical ---
+        row["macd_hist"] = _macd_hist(close)
+        row["obv_trend"] = _obv_trend(close, volume)
+
+        rows.append(row)
+
+    _log_elapsed("  daily factors ({} stocks)".format(len(rows)), t_daily)
+
+    t_fin = time.perf_counter()
+    # ---- single pass over financial data ----
+    # Build dict for O(1) row lookup instead of O(n²) list scan
+    row_by_id = {r["order_book_id"]: r for r in rows}
+    for order_book_id, tables in financial_data.items():
+        row = row_by_id.get(order_book_id)
+        if row is None:
+            row = nan_row(order_book_id, all_columns)
+            rows.append(row)
+            row_by_id[order_book_id] = row
+
+        # Pre-sort each financial table once — eliminates 11 redundant
+        # DataFrame sorts per stock inside latest_financial_numeric().
+        profit = _presort_financial(tables.get("profit", pd.DataFrame()))
+        balance = _presort_financial(tables.get("balance", pd.DataFrame()))
+        dupont = _presort_financial(tables.get("dupont", pd.DataFrame()))
+        operation = _presort_financial(tables.get("operation", pd.DataFrame()))
+        growth_table = _presort_financial(tables.get("growth", pd.DataFrame()))
+        cash_flow = _presort_financial(tables.get("cash_flow", pd.DataFrame()))
+
+        # --- quality ---
+        # Use direct frame access on pre-sorted DataFrames instead of
+        # latest_financial_numeric() which re-sorts every call.
+        row["roe"] = _fin_last(profit, "roe")
+        row["roa"] = _fin_last(profit, "roa")
+        if pd.isna(row["roa"]):
+            row["roa"] = _dupont_roa(dupont)
+        row["gross_margin"] = _fin_last(profit, "gross_margin")
+        row["debt_to_asset"] = _fin_last(balance, "debt_to_asset")
+        row["asset_turnover"] = _fin_last(operation, "asset_turnover")
+        if pd.isna(row["asset_turnover"]):
+            row["asset_turnover"] = _fin_last(dupont, "asset_turnover")
+        row["inventory_turnover"] = _fin_last(operation, "inventory_turnover")
+        row["receivables_turnover"] = _fin_last(operation, "receivables_turnover")
+
+        # --- growth ---
+        row["revenue_growth_yoy"] = _fin_last(growth_table, "revenue_growth_yoy")
+        if pd.isna(row["revenue_growth_yoy"]):
+            row["revenue_growth_yoy"] = _same_quarter_yoy(profit, "MBRevenue")
+        row["net_profit_growth_yoy"] = _fin_last(growth_table, "net_profit_growth_yoy")
+        row["operating_cashflow_growth_yoy"] = _fin_last(
+            growth_table, "operating_cashflow_growth_yoy"
+        )
+        if pd.isna(row["operating_cashflow_growth_yoy"]):
+            row["operating_cashflow_growth_yoy"] = _same_quarter_yoy(
+                _operating_cashflow_proxy(profit, cash_flow),
+                "operating_cashflow_proxy",
+            )
+
+    _log_elapsed("  financial factors ({} stocks)".format(
+        len(financial_data)), t_fin)
+
+    result = build_factor_frame(rows, all_columns)
+    _log_elapsed("calculate_raw_factors ({} stocks)".format(len(rows)), t0)
+    return result
+
+
+def _safe_numeric(value):
+    return pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+
+
+def _fin_last(frame, column):
+    """Return the last value of `column` from a pre-sorted financial frame."""
+    if frame is None or frame.empty or column not in frame.columns:
+        return np.nan
+    return _safe_numeric(frame.iloc[-1][column])
+
+
+def _presort_financial(frame):
+    """Sort a financial table once so latest_financial_numeric is cheap."""
+    if frame is None or frame.empty:
+        return pd.DataFrame()
+    for column in ("pubDate", "statDate", "date"):
+        if column in frame.columns:
+            return frame.sort_values(column)
+    return frame
 
 
 def _latest_filter_fields(daily_data):
@@ -631,11 +942,15 @@ def _score_log_message(order_book_id, score_row, config):
 
 
 def rebalance(context, bar_dict):
+    t0 = time.perf_counter()
     config = context.factor_config
     signal_dt = _previous_trading_datetime(context)
+
+    t_pool = time.perf_counter()
     stock_pool = _resolve_stock_pool(
         config, date=signal_dt.date() if signal_dt is not None else None
     )
+    _log_elapsed(">>>> rebalance step1: resolve_stock_pool", t_pool)
     logger.info("stock pool size: {}".format(len(stock_pool)))
 
     daily_data = _fetch_daily_data(stock_pool, as_of_date=signal_dt)
@@ -647,8 +962,11 @@ def rebalance(context, bar_dict):
     financial_data = _resolve_financial_data(
         context, daily_data.keys(), as_of_date=signal_dt
     )
+
+    t_factors = time.perf_counter()
     raw_factors = _calculate_raw_factors(daily_data, financial_data)
     filtered_factors = _apply_filters(raw_factors, daily_data, config)
+    _log_elapsed(">>>> rebalance step2: calc_factors + apply_filters", t_factors)
     if filtered_factors.empty:
         logger.warning("no stocks passed factor filters; clearing non-target positions")
         _order_to_targets({})
@@ -667,6 +985,8 @@ def rebalance(context, bar_dict):
         )
         _order_to_targets({})
         return
+
+    t_score = time.perf_counter()
     processed = preprocess_factors(
         filtered_factors[factor_columns],
         FACTOR_METADATA,
@@ -685,6 +1005,8 @@ def rebalance(context, bar_dict):
         config["factors"]["category_weights"],
         factor_weights=factor_weights,
     )
+    _log_elapsed(">>>> rebalance step3: preprocess + scoring", t_score)
+
     industry_map = _resolve_industry_map(context, scored.index, as_of_date=signal_dt)
     targets = _build_targets(
         scored,
@@ -698,7 +1020,11 @@ def rebalance(context, bar_dict):
     for order_book_id in targets:
         score_row = scored.loc[order_book_id]
         logger.info(_score_log_message(order_book_id, score_row, config))
+
+    t_order = time.perf_counter()
     _order_to_targets(targets)
+    _log_elapsed(">>>> rebalance step4: order_to_targets", t_order)
+    _log_elapsed(">>>> rebalance TOTAL", t0)
 
 
 def handle_bar(context, bar_dict):
