@@ -371,6 +371,51 @@ def test_normalize_operation_financial_data_maps_turnover_fields():
     assert result.loc[0, "asset_turnover"] == "0.8"
 
 
+def test_query_financial_data_retries_once_when_session_expires(monkeypatch):
+    from rqalpha.mod.rqalpha_mod_baostock import data_source as baostock_data_source
+
+    calls = {"login": 0, "query": 0}
+
+    class FakeResult:
+        def __init__(self, error_code, error_msg="", rows=None):
+            self.error_code = error_code
+            self.error_msg = error_msg
+            self.fields = ["code", "pubDate", "roe"]
+            self._rows = rows or []
+            self._index = 0
+
+        def next(self):
+            if self._index >= len(self._rows):
+                return False
+            self._index += 1
+            return True
+
+        def get_row_data(self):
+            return self._rows[self._index - 1]
+
+    class FakeLogin:
+        error_code = "0"
+        error_msg = ""
+
+    class FakeBaostock:
+        def login(self):
+            calls["login"] += 1
+            return FakeLogin()
+
+        def query_profit_data(self, **kwargs):
+            calls["query"] += 1
+            if calls["query"] == 1:
+                return FakeResult("100010", "用户未登录")
+            return FakeResult("0", rows=[["sh.600000", "2026-04-30", "0.12"]])
+
+    result = baostock_data_source._query_financial_data(
+        FakeBaostock(), "600000.XSHG", "profit", 2026, 1
+    )
+
+    assert calls == {"login": 1, "query": 2}
+    assert result.loc[0, "roe"] == "0.12"
+
+
 def test_fetch_baostock_index_components_maps_hs300_codes(monkeypatch):
     captured = {}
 
@@ -1088,7 +1133,11 @@ def test_baostock_mod_filters_prefetch_symbols_to_bundle_instruments(monkeypatch
     monkeypatch.setattr(
         baostock_mod,
         "fetch_baostock_index_components",
-        lambda index, date=None: ["600000.XSHG", "600930.XSHG", "000001.XSHE"],
+        lambda index, date=None: [
+            "600000.XSHG",
+            "600930.XSHG",
+            "000001.XSHE",
+        ],
     )
     monkeypatch.setattr(
         baostock_mod,

@@ -244,14 +244,32 @@ def test_load_aggressive_template_config():
     assert config["portfolio"]["holding_count"] == 10
     assert config["portfolio"]["buffer_count"] == 20
     assert config["portfolio"]["weighting"] == "score"
-    assert config["factors"]["category_weights"]["growth"] == 0.30
-    assert config["factors"]["category_weights"]["momentum"] == 0.25
-    assert config["factors"]["category_weights"]["technical"] == 0.20
+    assert config["factors"]["category_weights"] == {
+        "valuation": 0.03,
+        "quality": 0.05,
+        "growth": 0.07,
+        "momentum": 0.35,
+        "reversal": 0.10,
+        "risk": 0.07,
+        "liquidity": 0.08,
+        "technical": 0.25,
+    }
+    assert config["factors"]["factor_weights"]["momentum"] == {
+        "return_20": 0.35,
+        "return_60": 0.30,
+        "return_120": 0.15,
+        "price_ma60_strength": 0.20,
+    }
+    assert config["factors"]["factor_weights"]["technical"] == {
+        "macd_hist": 0.55,
+        "obv_trend": 0.45,
+    }
     assert config["filters"]["min_listed_days"] == 90
     assert config["filters"]["min_avg_amount_20"] == 10000000
     assert config["filters"]["require_positive_pe_pb"] is False
     assert config["risk"]["max_stock_weight"] == 0.40
     assert config["risk"]["max_industry_weight"] == 0.60
+    assert config["data"]["prefetch_workers"] == 4
     assert (
         config["backtest"]["result_path"]
         == "rqalpha_factor_framework/backtest/multi_factor_result_aggressive_weekly.pkl"

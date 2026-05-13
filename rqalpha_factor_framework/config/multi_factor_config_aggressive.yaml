@@ -22,15 +22,49 @@ factors:
     - liquidity
     - technical
   category_weights:
-    valuation: 0.05
-    quality: 0.10
-    growth: 0.30
-    momentum: 0.25
-    reversal: 0.00
-    risk: 0.05
-    liquidity: 0.05
-    technical: 0.20
-  factor_weights: {}
+    valuation: 0.03
+    quality: 0.05
+    growth: 0.07
+    momentum: 0.35
+    reversal: 0.10
+    risk: 0.07
+    liquidity: 0.08
+    technical: 0.25
+  factor_weights:
+    valuation:
+      pe_ttm: 0.15
+      pb: 0.15
+      ps_ttm: 0.25
+      pcf_ncf_ttm: 0.45
+    quality:
+      roe: 0.25
+      roa: 0.20
+      gross_margin: 0.15
+      debt_to_asset: 0.15
+      asset_turnover: 0.15
+      inventory_turnover: 0.05
+      receivables_turnover: 0.05
+    growth:
+      revenue_growth_yoy: 0.40
+      net_profit_growth_yoy: 0.40
+      operating_cashflow_growth_yoy: 0.20
+    momentum:
+      return_20: 0.35
+      return_60: 0.30
+      return_120: 0.15
+      price_ma60_strength: 0.20
+    reversal:
+      return_5: 0.70
+      rsi: 0.30
+    risk:
+      volatility_60: 0.60
+      max_drawdown_120: 0.40
+    liquidity:
+      avg_amount_20: 0.70
+      avg_turnover_20: 0.30
+    technical:
+      macd_hist: 0.55
+      obv_trend: 0.45
 
 scoring:
   missing: median
@@ -79,8 +113,8 @@ data:
     - operation
 
 backtest:
-  start_date: "2025-01-03"
-  end_date: "2025-12-26"
+  start_date: "2024-01-03"
+  end_date: "2024-8-26"
   frequency: 1d
   benchmark: 000300.XSHG
   initial_cash: 1000000

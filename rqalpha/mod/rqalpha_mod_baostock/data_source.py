@@ -132,16 +132,39 @@ def _result_to_frame(result, error_message):
     return pd.DataFrame(rows, columns=result.fields)
 
 
+def _is_not_logged_in_result(result):
+    message = str(getattr(result, "error_msg", ""))
+    return getattr(result, "error_code", "0") != "0" and (
+        "未登录" in message or "not login" in message.lower()
+    )
+
+
+def _login(bs):
+    login_result = bs.login()
+    if login_result.error_code != "0":
+        raise RuntimeError("Baostock login failed: {}".format(login_result.error_msg))
+
+
+def _query_to_frame(bs, query, error_message, **kwargs):
+    result = query(**kwargs)
+    if _is_not_logged_in_result(result):
+        _login(bs)
+        result = query(**kwargs)
+    return _result_to_frame(result, error_message)
+
+
 def _query_daily_data(bs, order_book_id, start_date, end_date, adjustflag):
-    result = bs.query_history_k_data_plus(
-        rqalpha_to_baostock(order_book_id),
-        ",".join(BAOSTOCK_FIELDS),
+    return _query_to_frame(
+        bs,
+        bs.query_history_k_data_plus,
+        "Baostock daily query failed",
+        code=rqalpha_to_baostock(order_book_id),
+        fields=",".join(BAOSTOCK_FIELDS),
         start_date=start_date,
         end_date=end_date,
         frequency="d",
         adjustflag=adjustflag,
     )
-    return _result_to_frame(result, "Baostock daily query failed")
 
 
 def fetch_baostock_daily_data(order_book_id, start_date, end_date, adjustflag):
@@ -160,9 +183,11 @@ def _query_index_components(bs, index_order_book_id, date=None):
     kwargs = {}
     if date:
         kwargs["date"] = str(date)
-    frame = _result_to_frame(
-        query(**kwargs),
+    frame = _query_to_frame(
+        bs,
+        query,
         "Baostock index components query failed",
+        **kwargs,
     )
     if frame.empty or "code" not in frame.columns:
         return []
@@ -187,9 +212,13 @@ def _query_financial_data(bs, order_book_id, table, year, quarter):
         raise ValueError("unsupported baostock financial table: {}".format(table))
 
     query = getattr(bs, query_name)
-    frame = _result_to_frame(
-        query(code=rqalpha_to_baostock(order_book_id), year=year, quarter=quarter),
+    frame = _query_to_frame(
+        bs,
+        query,
         "Baostock financial query failed",
+        code=rqalpha_to_baostock(order_book_id),
+        year=year,
+        quarter=quarter,
     )
     return normalize_financial_data(frame, order_book_id, table, year, quarter)
 
@@ -287,7 +316,6 @@ class BaostockDataSource(BaseDataSource):
         self._prefetch_workers = _normalize_prefetch_workers(
             getattr(mod_config, "prefetch_workers", 2)
         )
-
     def _fetch_baostock(self, order_book_id, start_date, end_date, adjustflag):
         return fetch_baostock_daily_data(order_book_id, start_date, end_date, adjustflag)
 

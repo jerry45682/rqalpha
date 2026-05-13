@@ -21,6 +21,9 @@ persist/
 multi_factor_result.pkl
 rqalpha/examples/multi_factor_strategy/multi_factor_result.pkl
 rqalpha/examples/multi_factor_strategy/multi_factor_result/
+rqalpha_factor_framework/backtest/*.log
+rqalpha_factor_framework/backtest/*.pkl
+rqalpha_factor_framework/backtest/*_report.html
 .coverage
 .tox
 rqalpha_test_coverage_report/
